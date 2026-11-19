@@ -139,12 +139,20 @@ function extractSeasonFromPO(poStr, fallbackSeason) {
   return fallbackSeason || S.season;
 }
 
+function sanitizeSapSize(v) {
+  let s = String(v ?? '').trim();
+  if (!s) return '';
+  // Una TALLA SAP nunca lleva '#' (ej. '#5' o '5#' debe quedar limpia como '5')
+  s = s.replace(/^#+|#+$/g, '').trim();
+  return s;
+}
+
 function buildTallaSapLookup() {
   const pairs = Array.isArray(S.sizePairs) ? S.sizePairs : [];
   const map = new Map();
   const add = (k, v) => {
     const key = String(k || '').trim().toUpperCase();
-    const val = String(v || '').trim();
+    const val = sanitizeSapSize(v);
     if (!key || !val) return;
     if (!map.has(key)) map.set(key, []);
     const arr = map.get(key);
@@ -157,6 +165,12 @@ function buildTallaSapLookup() {
       add(tStr.slice(1) + '-', ts);
     } else if (/^\d+-$/.test(tStr)) {
       add('-' + tStr.slice(0, -1), ts);
+    } else if (/^#\d+(\.\d+)?$/.test(tStr)) {
+      add(tStr.slice(1) + '#', ts);
+      add(tStr.slice(1), ts);
+    } else if (/^\d+(\.\d+)?#$/.test(tStr)) {
+      add('#' + tStr.slice(0, -1), ts);
+      add(tStr.slice(0, -1), ts);
     }
   }
   return map;
@@ -165,7 +179,7 @@ function buildTallaSapLookup() {
 function getTallaSapCandidates(gridVal, explicitSap, lookupMap) {
   const out = [];
   const pushUnique = v => {
-    const s = String(v || '').trim();
+    const s = sanitizeSapSize(v);
     if (s && !out.includes(s)) out.push(s);
   };
   if (explicitSap) pushUnique(explicitSap);
@@ -179,8 +193,18 @@ function getTallaSapCandidates(gridVal, explicitSap, lookupMap) {
     } else if (/^-\d+$/.test(raw)) {
       const alt = raw.slice(1) + '-';
       (lookupMap.get(alt) || []).forEach(pushUnique);
+    } else if (/^#\d+(\.\d+)?$/.test(raw)) {
+      const numPart = raw.slice(1);
+      (lookupMap.get(numPart + '#') || []).forEach(pushUnique);
+      (lookupMap.get(numPart) || []).forEach(pushUnique);
+      pushUnique(numPart);
+    } else if (/^\d+(\.\d+)?#$/.test(raw)) {
+      const numPart = raw.slice(0, -1);
+      (lookupMap.get('#' + numPart) || []).forEach(pushUnique);
+      (lookupMap.get(numPart) || []).forEach(pushUnique);
+      pushUnique(numPart);
     }
-    pushUnique(String(gridVal).trim());
+    pushUnique(raw);
   }
   return out;
 }
@@ -2391,18 +2415,20 @@ function viewSizeMapModal() {
 
 
 function resolveTallaSapFromGrid(gridVal, explicitSap, lookupMap, poolForSku = []) {
-  const candidates = getTallaSapCandidates(gridVal, explicitSap, lookupMap);
+  const cleanExplicit = sanitizeSapSize(explicitSap);
+  const candidates = getTallaSapCandidates(gridVal, cleanExplicit, lookupMap);
   const rawGridStr = String(gridVal ?? '').trim();
+  const cleanGridFallback = sanitizeSapSize(rawGridStr);
   const mappedOnly = candidates.filter(c => c.toUpperCase() !== rawGridStr.toUpperCase());
   const searchPool = mappedOnly.length ? mappedOnly : candidates;
-  let chosen = searchPool[0] || rawGridStr;
+  let chosen = searchPool[0] || cleanGridFallback;
   if (searchPool.length > 1 && poolForSku.length) {
     const matchIn10A = searchPool.find(cand =>
       poolForSku.some(r => normTalla(r['Talla']) === normTalla(cand) || normTalla(r['Talla marca']) === normTalla(cand))
     );
     if (matchIn10A) chosen = matchIn10A;
   }
-  return chosen;
+  return sanitizeSapSize(chosen);
 }
 
 function getBrandTplCatalogMap(brand = S.brand) {
@@ -2472,7 +2498,8 @@ function refreshBillingHistoryEnrichment(brand = S.brand) {
       const prevTalSap = String(r.cells[talSapIdx] || '').trim();
 
       // 1. Recalcular TALLA SAP desde maestro de tallas
-      const newTalSap = resolveTallaSapFromGrid(gridVal, prevTalSap && prevTalSap !== gridVal ? prevTalSap : '', sizeLookup);
+      const validPrevSap = (prevTalSap && prevTalSap !== gridVal && !prevTalSap.includes('#')) ? prevTalSap : '';
+      const newTalSap = resolveTallaSapFromGrid(gridVal, validPrevSap, sizeLookup);
       if (newTalSap && r.cells[talSapIdx] !== newTalSap) {
         r.cells[talSapIdx] = newTalSap;
         dirty = true;
@@ -5126,10 +5153,14 @@ function vBilling() {
         <option value="__ASSIGNED__">✓ Solo con Embarque asignado</option>
         ${embarquesList.map(e => `<option value="${esc(e)}" ${bt.embarque === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}
       </select>
-      <select id="btCod" class="border rounded px-2.5 py-1.5 text-sm bg-white font-mono">
-        <option value="">Todos los códigos (${codigosList.length})</option>
-        ${codigosList.map(c => `<option value="${esc(c)}" ${bt.codigo === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-      </select>
+      <div class="relative flex items-center">
+        <i data-lucide="hash" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none"></i>
+        <input type="text" id="btCod" list="btCodList" class="border rounded pl-7 pr-7 py-1.5 text-sm w-48 bg-white font-mono uppercase placeholder:normal-case placeholder:font-sans" placeholder="Filtrar código..." value="${esc(bt.codigo)}">
+        <button type="button" id="btCodClear" class="${bt.codigo ? '' : 'hidden'} absolute right-2 text-slate-400 hover:text-slate-700 text-xs font-bold" title="Limpiar filtro de código">✕</button>
+        <datalist id="btCodList">
+          ${codigosList.map(c => `<option value="${esc(c)}">`).join('')}
+        </datalist>
+      </div>
       <select id="btFact" class="border rounded px-2.5 py-1.5 text-sm bg-white">
         <option value="">Todas las facturas (${facturasList.length})</option>
         ${facturasList.map(f => `<option value="${esc(f)}" ${bt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
@@ -5161,7 +5192,7 @@ function vBilling() {
       if (bt.embarque === '__FORWARDER__' && !isFw) return false;
       if (bt.embarque === '__ASSIGNED__' && isFw) return false;
       if (bt.embarque && !bt.embarque.startsWith('__') && r.embarque !== bt.embarque) return false;
-      if (bt.codigo && String(r.cells[codIdx] || '').trim() !== bt.codigo) return false;
+      if (bt.codigo && !String(r.cells[codIdx] || '').trim().toUpperCase().includes(bt.codigo.trim().toUpperCase())) return false;
       if (bt.factura && String(r.cells[factIdx] || '').trim() !== bt.factura) return false;
       if (bt.temporada && String(r.cells[tempIdx] || '').trim() !== bt.temporada) return false;
       if (bt.canal && String(r.cells[canalIdx] || '').trim() !== bt.canal) return false;
@@ -5261,8 +5292,18 @@ function vBilling() {
   };
 
   ['btSearch', 'btEmb', 'btCod', 'btFact', 'btTemp', 'btCanal'].forEach(id => {
-    $(id).oninput = onFilterChange;
+    $(id).oninput = () => {
+      if ($('btCodClear')) $('btCodClear').classList.toggle('hidden', !$('btCod').value.trim());
+      onFilterChange();
+    };
   });
+  if ($('btCodClear')) {
+    $('btCodClear').onclick = () => {
+      $('btCod').value = '';
+      $('btCodClear').classList.add('hidden');
+      onFilterChange();
+    };
+  }
   $('btExportBtn').onclick = () => exportFilteredBillingExcel(currentFiltered, headers);
 
   icons();
