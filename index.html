@@ -2581,7 +2581,7 @@ async function promptSapCatalogManager() {
        <div class="space-y-2 pt-1">
          <button type="button" id="btnUploadSapCatalog" class="w-full text-left p-3 border-2 border-sky-200 bg-sky-50/40 rounded-lg hover:border-sky-600 hover:bg-sky-50 transition">
            <div class="font-semibold text-sky-950 flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4 text-sky-700"></i> Subir / Actualizar Excel desde SAP</div>
-           <div class="text-xs text-slate-600 mt-0.5">Acepta cualquier reporte de SAP con columnas como <code>Código Internacional / Material / ID</code>, <code>Talla SAP</code>, <code>Material SAP / MAR SAP</code> y <code>EAN</code>. Actualiza al instante todo el historial de facturación.</div>
+           <div class="text-xs text-slate-600 mt-0.5">Acepta cualquier reporte de SAP con columnas como <code>Model</code> (Código Internacional), <code>Articulo</code> (MAR SAP), <code>Código EAN/UPC</code> (EAN) y <code>Tam.1</code> (Talla SAP). Actualiza al instante todo el historial de facturación.</div>
          </button>
          ${allBillRows.length > 0 ? `
          <button type="button" id="btnExportMissingSapSkus" class="w-full text-left p-3 border rounded-lg hover:border-amber-600 hover:bg-amber-50/50 transition">
@@ -2656,19 +2656,32 @@ async function loadSapCatalogExcel(file) {
     await tick();
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
-    if (!raw.length) throw new Error('El archivo de SAP está vacío.');
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+    if (!aoa.length) throw new Error('El archivo de SAP está vacío.');
+
+    // Detectar dinámicamente la fila de encabezados real (por si el reporte SAP trae filas de título arriba)
+    let headerRowIdx = 0;
+    for (let i = 0; i < Math.min(15, aoa.length); i++) {
+      const rNorm = aoa[i].map(c => norm(c));
+      if (rNorm.includes('model') || rNorm.includes('articulo') || rNorm.includes('codigointernacional') || rNorm.includes('tam1')) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+    const raw = XLSX.utils.sheet_to_json(sheet, { range: headerRowIdx, defval: '', raw: true });
+    if (!raw.length) throw new Error('El archivo de SAP no contiene filas de datos.');
 
     if (!S.sapCatalog) S.sapCatalog = {};
     let parsedCount = 0;
 
     for (const o of raw) {
       let codIntl = String(getRowVal(o, [
-        'CODIGO_INTERNACIONAL', 'Codigo Internacional', 'Código Internacional', 'Antiguo número de material',
-        'NEW Material', 'Material Marca', 'Referencia', 'COD_INT', 'MATERIAL_MARCA'
+        'Model', 'MODEL', 'CODIGO_INTERNACIONAL', 'Codigo Internacional', 'Código Internacional',
+        'Antiguo número de material', 'NEW Material', 'Material Marca', 'Referencia', 'COD_INT', 'MATERIAL_MARCA'
       ]) ?? '').trim();
       let tallaSap = String(getRowVal(o, [
-        'TALLA_SAP', 'Talla SAP', 'Talla', 'Valor matriz', 'Grid Value', 'Tamaño', 'Dimension'
+        'Tam.1', 'Tam. 1', 'Tam 1', 'TAM.1', 'TAM1', 'TALLA_SAP', 'Talla SAP', 'Talla',
+        'Valor matriz', 'Grid Value', 'Tamaño', 'Dimension'
       ]) ?? '').trim();
       const idCombo = String(getRowVal(o, [
         'ID', 'ID_CONCATENADO', 'ID SAP', 'ID (material + "espacio en blanco" + talla sap")'
@@ -2683,9 +2696,11 @@ async function loadSapCatalogExcel(file) {
       }
 
       const marSap = String(getRowVal(o, [
-        'MAR_SAP_NUEVO', 'MAR SAP NUEVO', 'MAR SAP', 'Material SAP', 'Material', 'Artículo', 'Codigo SAP', 'Código SAP', 'SAP'
+        'Articulo', 'Artículo', 'ARTICULO', 'ARTÍCULO', 'MAR_SAP_NUEVO', 'MAR SAP NUEVO', 'MAR SAP',
+        'Material SAP', 'Material', 'Codigo SAP', 'Código SAP', 'SAP'
       ]) ?? '').trim();
       const eanSap = String(getRowVal(o, [
+        'Código EAN/UPC', 'Codigo EAN/UPC', 'CODIGO EAN/UPC', 'CÓDIGO EAN/UPC',
         'EAN_SAP', 'EAN SAP', 'EAN', 'EAN/UPC', 'Código de barras', 'GTIN', 'UPC'
       ]) ?? '').trim();
 
@@ -2703,7 +2718,7 @@ async function loadSapCatalogExcel(file) {
     }
 
     if (!parsedCount) {
-      throw new Error('No se encontraron filas válidas con Código Internacional, Talla SAP y MAR SAP / EAN.');
+      throw new Error('No se encontraron filas válidas con las columnas Model, Articulo, Código EAN/UPC y Tam.1.');
     }
 
     const updatedBillLines = applySapCatalogToBillingHist(S.brand);
