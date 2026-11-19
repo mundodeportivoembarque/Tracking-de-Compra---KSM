@@ -222,6 +222,7 @@ const TIENDAS_REEBOK = new Set([
 function resolverCanalInicial(refCompra, marca) {
   const ref = String(refCompra || '').trim().toUpperCase();
   if (!ref) return '';
+  if (ref === 'PR02' || ref === 'PRO2' || ref.includes('PR02') || ref.includes('PRO2')) return 'TIENDAS';
   const isAdi = String(marca || '').toUpperCase().includes('ADI');
   const pool = isAdi ? TIENDAS_ADIDAS : TIENDAS_REEBOK;
   if (pool.has(ref)) return 'TIENDAS';
@@ -461,6 +462,12 @@ async function reload() {
     // Todo registro histórico que no tenga Detalle compra asignado se etiqueta automáticamente como COMPRA CANAL
     if (!r['Detalle compra'] || !String(r['Detalle compra']).trim()) {
       r['Detalle compra'] = 'COMPRA CANAL';
+      dirty = true;
+    }
+    const rRefUp = String(r['Referencia compra'] || '').trim().toUpperCase();
+    const rCiUp = String(r['Canal Inicial'] || '').trim().toUpperCase();
+    if ((rRefUp === 'PR02' || rRefUp === 'PRO2' || rRefUp.includes('PR02') || rRefUp.includes('PRO2') || rCiUp === 'PR02' || rCiUp === 'PRO2') && r['Canal Inicial'] !== 'TIENDAS') {
+      r['Canal Inicial'] = 'TIENDAS';
       dirty = true;
     }
     if (dirty && r.id != null) migrated.push(r);
@@ -1433,7 +1440,11 @@ async function parseExcelFile(file, tipoCompra) {
     } else if (!r['Detalle compra']) {
       r['Detalle compra'] = 'COMPRA CANAL';
     }
-    if (!r['Canal Inicial']) {
+    const refUp = String(r['Referencia compra'] || '').trim().toUpperCase();
+    const ciUp = String(r['Canal Inicial'] || '').trim().toUpperCase();
+    if (refUp === 'PR02' || refUp === 'PRO2' || refUp.includes('PR02') || refUp.includes('PRO2') || ciUp === 'PR02' || ciUp === 'PRO2') {
+      r['Canal Inicial'] = 'TIENDAS';
+    } else if (!r['Canal Inicial']) {
       r['Canal Inicial'] = resolverCanalInicial(r['Referencia compra'], S.brand);
     }
     if (!r['Canal Final']) r['Canal Final'] = '';
@@ -2121,6 +2132,8 @@ async function loadOcFinalProducto(file) {
       );
       const pool = rawPool.filter(r => {
         if (r['Cantidad'] <= 0 || r['Canal Final']) return false;
+        const rFact = norm(r['Factura']);
+        if (fact && rFact && rFact !== fact) return false;
         const rEmb = norm(r['EMBARQUE']);
         if (emb && rEmb && rEmb !== emb) return false;
         return true;
@@ -3528,7 +3541,7 @@ async function processBrandBilling(file, ptsFile = null) {
       const descripcion = (tplItem && tplItem.descripcion) ? tplItem.descripcion : String(getRowVal(o, ['Material Description', 'Name', 'Descripción']) ?? '').trim();
       const color = (tplItem && tplItem.color) ? tplItem.color : String(getRowVal(o, ['Color']) ?? '').trim();
 
-      const groupKey = `${invNum}|${ptRaw}|${poRaw}|${codNorm}|${normTalla(chosenTallaSap)}|${resolvedEmbarque}`;
+      const groupKey = `${norm(invNum)}|${invNum}|${ptRaw}|${poRaw}|${codNorm}|${normTalla(chosenTallaSap)}|${resolvedEmbarque}`;
       if (!groupedMap.has(groupKey)) {
         groupedMap.set(groupKey, {
           status: String(getRowVal(o, ['Status']) ?? 'NEW').trim(),
