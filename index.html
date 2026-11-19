@@ -175,12 +175,12 @@ function getTallaSapCandidates(gridVal, explicitSap, lookupMap) {
 /* ============ CONFIGURACIÓN DE TIENDAS Y CANALES ============ */
 const TIENDAS_ADIDAS = new Set([
   'CITY', 'CONDADO', 'CAPUEL-CLUB EMELEC', 'EMELEC-TIENDA', 'CUENCA', 'JARDIN',
-  'QUICENTRO', 'SAN MARINO', 'SCALA', 'SOL', 'VILLAGE', 'PRO2', 'OCS CUENCA',
+  'QUICENTRO', 'SAN MARINO', 'SCALA', 'SOL', 'VILLAGE', 'PRO2', 'PR02', 'OCS CUENCA',
   'DORAL', 'SNEAKER COLLECT TIENDA', 'AMBATO', 'SANTO DOMINGO',
   'ORIGINALS SCALA-CONDAD', 'WC02', 'WEB ADIDAS TIENDAS', 'OC SOL'
 ].map(s => s.trim().toUpperCase()));
 const TIENDAS_REEBOK = new Set([
-  'CONDADO', 'CUENCA', 'SOL', 'QUICENTRO SUR', 'PRO2'
+  'CONDADO', 'CUENCA', 'SOL', 'QUICENTRO SUR', 'PRO2', 'PR02'
 ].map(s => s.trim().toUpperCase()));
 function resolverCanalInicial(refCompra, marca) {
   const ref = String(refCompra || '').trim().toUpperCase();
@@ -2362,7 +2362,17 @@ function normalizePtId(val) {
   return s.toUpperCase();
 }
 
+function extractEmbNameFromFileName(fileName) {
+  const base = String(fileName || '').replace(/\.[^.]+$/, '').toUpperCase();
+  const mPanama = base.match(/PANAMA\s*\d+/i);
+  if (mPanama) return mPanama[0].toUpperCase().replace(/\s+/, ' ');
+  const mEmb = base.match(/(?:EMB|EMBARQUE)[\s._-]*([A-Z0-9\s-]+)/i);
+  if (mEmb && mEmb[1]) return mEmb[1].trim();
+  return '';
+}
+
 async function parsePtsExcelMap(file) {
+  const fallbackEmbFromName = extractEmbNameFromFileName(file && file.name);
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
@@ -2371,7 +2381,7 @@ async function parsePtsExcelMap(file) {
 
   let startRow = 0;
   let ptCol = 0;
-  let embCol = 1;
+  let embCol = -1;
   const r0 = aoa[0].map(c => norm(c));
   const foundPtCol = r0.findIndex(h => h.startsWith('pts') || h.includes('delivery') || h.includes('salesorder') || h === 'pt' || h === 'entrega');
   const foundEmbCol = r0.findIndex(h => h.includes('embarque') || h.includes('shipment'));
@@ -2385,9 +2395,10 @@ async function parsePtsExcelMap(file) {
     const row = aoa[i];
     if (!row || !row.length) continue;
     const pt = normalizePtId(row[ptCol]);
-    const emb = String(row[embCol] ?? '').trim();
+    const rawEmb = embCol !== -1 ? String(row[embCol] ?? '').trim() : '';
+    const emb = rawEmb || fallbackEmbFromName || 'FORWARDER';
     if (pt && /^\d{5,}$/.test(pt)) {
-      ptsMap.set(pt, emb || 'EMBARQUE ASIGNADO');
+      ptsMap.set(pt, emb);
     }
   }
   return ptsMap;
@@ -2753,7 +2764,7 @@ async function processBrandBilling(file, ptsFile = null) {
         : String(getRowVal(o, ['Material', 'Código', 'Codigo', 'SAP']) ?? '').trim();
       const codNorm = norm(materialRaw);
       const qty = isReebok
-        ? parseNum(getRowVal(o, ['Final Delivery QTY TOTAL', 'Final Delivery QTY', 'Reques quantity', 'Cantidad', 'QTY']))
+        ? parseNum(getRowVal(o, ['Final Delivery QTY TOTAL', 'Final Delivery QTY', 'Cantidad', 'QTY']))
         : parseNum(getRowVal(o, ['Delivery quantity', 'Delivery Quantity', 'Invoiced Quantity', 'Cantidad', 'QTY']));
       if (!codNorm || qty <= 0) continue;
 
@@ -2996,7 +3007,8 @@ async function processBrandBilling(file, ptsFile = null) {
           });
         }
         const b = perLineCanalBuckets.get(bKey);
-        b.reqQty += subQty;
+        const propReq = line.qty > 0 ? Math.round((line.reqQty * (subQty / line.qty)) * 100) / 100 : subQty;
+        b.reqQty = Math.round((b.reqQty + propReq) * 100) / 100;
         b.qty += subQty;
         b.netValue = Math.round((b.netPrice * b.qty) * 10000) / 10000;
         b.netValWithoutRound = Math.round((b.netWithoutRound * b.qty) * 10000) / 10000;
