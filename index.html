@@ -67,6 +67,7 @@
 <input type="file" id="fBillingBrand" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fSizeMap" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fPtsAssign" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fSapCatalog" accept=".xlsx,.xls,.csv" class="hidden">
 <div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"></div>
 <div id="busy" class="hidden fixed inset-0 bg-white/70 z-40 flex items-center justify-center text-sm font-medium">
   <span id="busyMsg" class="bg-white shadow px-4 py-2 rounded"></span>
@@ -240,9 +241,10 @@ const S = {
   logos: {},
   templates: {},
   sizePairs: [],
+  sapCatalog: {},
   billingHistory: { Adidas: [], Reebok: [] },
   lastBillingPreview: null,
-  billTab: { q: '', embarque: '', factura: '', temporada: '', canal: '', forwarderOnly: false, page: 1, size: 50 },
+  billTab: { q: '', codigo: '', embarque: '', factura: '', temporada: '', canal: '', forwarderOnly: false, page: 1, size: 50 },
   counts: {},
   cloud: {
     dirHandle: null,
@@ -407,6 +409,7 @@ async function saveMeta() {
   t.objectStore('meta').put(S.logos, 'logos');
   t.objectStore('meta').put(S.templates, 'templates');
   t.objectStore('meta').put(S.sizePairs || [], 'sizePairs');
+  t.objectStore('meta').put(S.sapCatalog || {}, 'sapCatalog');
   t.objectStore('meta').put(S.billingHistory || { Adidas: [], Reebok: [] }, 'billingHistory');
   await txDone(t);
 }
@@ -553,6 +556,7 @@ async function pushCloudConfig() {
     seasons: S.seasons,
     logos: S.logos,
     sizePairs: S.sizePairs,
+    sapCatalog: S.sapCatalog,
     billingHistory: S.billingHistory
   };
   await writeCloudFile(cfgFileName(), JSON.stringify(cfg));
@@ -712,6 +716,9 @@ async function pullFromCloudFolder(onlyActiveSeason = false, silent = false) {
       if (cfgData.seasons) S.seasons = cfgData.seasons;
       if (cfgData.logos) S.logos = { ...S.logos, ...cfgData.logos };
       if (Array.isArray(cfgData.sizePairs)) S.sizePairs = cfgData.sizePairs;
+      if (cfgData.sapCatalog && typeof cfgData.sapCatalog === 'object') {
+        S.sapCatalog = { ...S.sapCatalog, ...cfgData.sapCatalog };
+      }
       if (cfgData.billingHistory && typeof cfgData.billingHistory === 'object') {
         S.billingHistory = { Adidas: [], Reebok: [], ...cfgData.billingHistory };
       }
@@ -2378,6 +2385,278 @@ function viewSizeMapModal() {
   drawSizes();
 }
 
+
+/* ============ GESTIÓN DE CATÁLOGO MAR SAP NUEVO Y EAN SAP (POR MATERIAL + TALLA SAP) ============ */
+function buildSapCatalogKey(brand, codIntl, tallaSap) {
+  const b = String(brand || S.brand).trim();
+  const c = String(codIntl || '').trim().toUpperCase();
+  const t = normTalla(tallaSap).toUpperCase();
+  return `${b}|${c}|${t}`;
+}
+
+function lookupSapEanFromCatalog(brand, codIntl, tallaSap) {
+  if (!S.sapCatalog) return null;
+  const k1 = buildSapCatalogKey(brand, codIntl, tallaSap);
+  if (S.sapCatalog[k1]) return S.sapCatalog[k1];
+  // Respaldo con talla sin normalizar por si hubiera diferencia de ceros
+  const k2 = `${String(brand || S.brand).trim()}|${String(codIntl || '').trim().toUpperCase()}|${String(tallaSap || '').trim().toUpperCase()}`;
+  return S.sapCatalog[k2] || null;
+}
+
+function applySapCatalogToBillingHist(brand) {
+  const hist = getBrandBillingHistory(brand);
+  const isRbk = String(brand).toUpperCase().includes('REEBOK');
+  const codIdx = isRbk ? 9 : 8;
+  const talSapIdx = isRbk ? 20 : 16;
+  const marSapIdx = isRbk ? 22 : 18;
+  const eanSapIdx = isRbk ? 23 : 19;
+  let updatedLines = 0;
+
+  for (const batch of hist) {
+    if (!Array.isArray(batch.rows)) continue;
+    for (const r of batch.rows) {
+      if (!Array.isArray(r.cells)) continue;
+      const mat = r.cells[codIdx];
+      const tal = r.cells[talSapIdx];
+      const hit = lookupSapEanFromCatalog(brand, mat, tal);
+      if (hit) {
+        let changed = false;
+        if (hit.marSap && r.cells[marSapIdx] !== hit.marSap) {
+          r.cells[marSapIdx] = hit.marSap;
+          changed = true;
+        }
+        if (hit.eanSap && r.cells[eanSapIdx] !== hit.eanSap) {
+          r.cells[eanSapIdx] = hit.eanSap;
+          changed = true;
+        }
+        if (changed) updatedLines++;
+      }
+    }
+  }
+  return updatedLines;
+}
+
+async function promptSapCatalogManager() {
+  const prefix = S.brand + '|';
+  const keys = Object.keys(S.sapCatalog || {}).filter(k => k.startsWith(prefix));
+  const allBillRows = getAllBrandBillingRows(S.brand);
+  const isRbk = String(S.brand).toUpperCase().includes('REEBOK');
+  const marSapIdx = isRbk ? 22 : 18;
+  const missingCount = allBillRows.filter(r => !String((r.cells && r.cells[marSapIdx]) || '').trim()).length;
+
+  await modal(
+    `Catálogo MAR SAP y EAN SAP · ${S.brand}`,
+    `<div class="space-y-3 text-slate-700">
+       <p>Conecta una descarga de artículos de <b>SAP</b> (Material / Código Internacional + Talla SAP + Código MAR SAP + EAN) para rellenar automáticamente <b>MAR SAP NUEVO</b> y <b>EAN SAP</b> en todo tu <b>Detalle de Facturación</b>.</p>
+       <div class="p-3 rounded-lg bg-sky-50 border border-sky-200 text-xs space-y-1">
+         <div><b>Registros guardados en catálogo (${S.brand}):</b> <span class="text-sky-950 font-bold">${fn(keys.length)} combinaciones SKU + Talla</span></div>
+         ${allBillRows.length > 0 ? `<div><b>Líneas en Detalle de Facturación sin MAR SAP:</b> <span class="font-bold ${missingCount > 0 ? 'text-amber-700' : 'text-emerald-700'}">${fn(missingCount)} de ${fn(allBillRows.length)} líneas</span></div>` : ''}
+       </div>
+       <div class="space-y-2 pt-1">
+         <button type="button" id="btnUploadSapCatalog" class="w-full text-left p-3 border-2 border-sky-200 bg-sky-50/40 rounded-lg hover:border-sky-600 hover:bg-sky-50 transition">
+           <div class="font-semibold text-sky-950 flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4 text-sky-700"></i> Subir / Actualizar Excel desde SAP</div>
+           <div class="text-xs text-slate-600 mt-0.5">Acepta cualquier reporte de SAP con columnas como <code>Código Internacional / Material / ID</code>, <code>Talla SAP</code>, <code>Material SAP / MAR SAP</code> y <code>EAN</code>. Actualiza al instante todo el historial de facturación.</div>
+         </button>
+         ${allBillRows.length > 0 ? `
+         <button type="button" id="btnExportMissingSapSkus" class="w-full text-left p-3 border rounded-lg hover:border-amber-600 hover:bg-amber-50/50 transition">
+           <div class="font-semibold text-slate-900 flex items-center gap-2"><i data-lucide="download" class="w-4 h-4 text-amber-600"></i> Descargar Códigos Internacionales Pendientes para buscar en SAP</div>
+           <div class="text-xs text-slate-500 mt-0.5">Exporta la lista limpia de códigos únicos (sin duplicados) que aún no tienen MAR SAP / EAN para copiarlos directo en SAP.</div>
+         </button>` : ''}
+         ${keys.length > 0 ? `
+         <button type="button" id="btnViewSapCatalog" class="w-full text-left p-3 border rounded-lg hover:border-indigo-600 hover:bg-indigo-50/50 transition">
+           <div class="font-semibold text-slate-900 flex items-center gap-2"><i data-lucide="search" class="w-4 h-4 text-indigo-700"></i> Consultar Catálogo SAP Guardado (${fn(keys.length)})</div>
+           <div class="text-xs text-slate-500 mt-0.5">Busca por código internacional, código SAP o EAN.</div>
+         </button>` : ''}
+       </div>
+     </div>`,
+    [['Cerrar', 'c']]
+  );
+  icons();
+}
+
+document.addEventListener('click', e => {
+  if (e.target.closest('#btnUploadSapCatalog')) {
+    $('modal').classList.add('hidden');
+    $('fSapCatalog').click();
+  }
+  if (e.target.closest('#btnExportMissingSapSkus')) {
+    $('modal').classList.add('hidden');
+    exportMissingSapCodesExcel();
+  }
+  if (e.target.closest('#btnViewSapCatalog')) {
+    $('modal').classList.add('hidden');
+    viewSapCatalogModal();
+  }
+});
+
+function exportMissingSapCodesExcel() {
+  const allBillRows = getAllBrandBillingRows(S.brand);
+  const isRbk = String(S.brand).toUpperCase().includes('REEBOK');
+  const codIdx = isRbk ? 9 : 8;
+  const talSapIdx = isRbk ? 20 : 16;
+  const marSapIdx = isRbk ? 22 : 18;
+  const descIdx = isRbk ? 25 : 21;
+
+  const missingRows = allBillRows.filter(r => !String((r.cells && r.cells[marSapIdx]) || '').trim());
+  const source = missingRows.length ? missingRows : allBillRows;
+  if (!source.length) return modal('Sin datos', 'No hay registros en el Detalle de Facturación.');
+
+  const uniqueIntls = [...new Set(source.map(r => String(r.cells[codIdx] || '').trim()).filter(Boolean))].sort();
+  const detailMap = new Map();
+  source.forEach(r => {
+    const cod = String(r.cells[codIdx] || '').trim();
+    const tal = String(r.cells[talSapIdx] || '').trim();
+    const key = `${cod}|${tal}`;
+    if (cod && !detailMap.has(key)) {
+      detailMap.set(key, [cod, tal, `${cod} ${tal}`.trim(), r.cells[descIdx] || '', '', '']);
+    }
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['CODIGO_INTERNACIONAL (Copiar a SAP)'],
+    ...uniqueIntls.map(c => [c])
+  ]), 'Codigos_Unicos_SAP');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['CODIGO_INTERNACIONAL', 'TALLA_SAP', 'ID_CONCATENADO', 'GRUPO', 'MAR_SAP_NUEVO', 'EAN_SAP'],
+    ...[...detailMap.values()]
+  ]), 'Plantilla_Carga_SAP');
+  XLSX.writeFile(wb, `CODIGOS_PENDIENTES_SAP_${S.brand}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+async function loadSapCatalogExcel(file) {
+  try {
+    busy(`Leyendo catálogo SAP / EAN para ${S.brand}…`);
+    await tick();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+    if (!raw.length) throw new Error('El archivo de SAP está vacío.');
+
+    if (!S.sapCatalog) S.sapCatalog = {};
+    let parsedCount = 0;
+
+    for (const o of raw) {
+      let codIntl = String(getRowVal(o, [
+        'CODIGO_INTERNACIONAL', 'Codigo Internacional', 'Código Internacional', 'Antiguo número de material',
+        'NEW Material', 'Material Marca', 'Referencia', 'COD_INT', 'MATERIAL_MARCA'
+      ]) ?? '').trim();
+      let tallaSap = String(getRowVal(o, [
+        'TALLA_SAP', 'Talla SAP', 'Talla', 'Valor matriz', 'Grid Value', 'Tamaño', 'Dimension'
+      ]) ?? '').trim();
+      const idCombo = String(getRowVal(o, [
+        'ID', 'ID_CONCATENADO', 'ID (NEW MATERIAL + "ESPACIO EN BLANCO" + TALLA SAP', 'ID (material + "espacio en blanco" + talla sap")'
+      ]) ?? '').trim();
+
+      if ((!codIntl || !tallaSap) && idCombo && idCombo.includes(' ')) {
+        const parts = idCombo.split(/\s+/);
+        if (parts.length >= 2) {
+          if (!codIntl) codIntl = parts[0].trim();
+          if (!tallaSap) tallaSap = parts.slice(1).join(' ').trim();
+        }
+      }
+
+      const marSap = String(getRowVal(o, [
+        'MAR_SAP_NUEVO', 'MAR SAP NUEVO', 'MAR SAP', 'Material SAP', 'Material', 'Artículo', 'Codigo SAP', 'Código SAP', 'SAP'
+      ]) ?? '').trim();
+      const eanSap = String(getRowVal(o, [
+        'EAN_SAP', 'EAN SAP', 'EAN', 'EAN/UPC', 'Código de barras', 'GTIN', 'UPC'
+      ]) ?? '').trim();
+
+      if (!codIntl || !tallaSap || (!marSap && !eanSap)) continue;
+
+      const key = buildSapCatalogKey(S.brand, codIntl, tallaSap);
+      const prev = S.sapCatalog[key] || {};
+      S.sapCatalog[key] = {
+        codIntl: codIntl.toUpperCase(),
+        tallaSap: normTalla(tallaSap),
+        marSap: marSap || prev.marSap || '',
+        eanSap: eanSap || prev.eanSap || ''
+      };
+      parsedCount++;
+    }
+
+    if (!parsedCount) {
+      throw new Error('No se encontraron filas válidas con Código Internacional, Talla SAP y MAR SAP / EAN.');
+    }
+
+    const updatedBillLines = applySapCatalogToBillingHist(S.brand);
+    await saveMeta();
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      pushCloudConfig().catch(() => {});
+    }
+    render();
+    busy();
+
+    modal(
+      'Catálogo MAR SAP y EAN Actualizado',
+      `<div class="space-y-2 text-slate-700">
+         <p>Se procesaron <b>${fn(parsedCount)} combinaciones SKU + Talla</b> en el catálogo de <b>${esc(S.brand)}</b>.</p>
+         <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs">
+           ✓ Se actualizaron automáticamente <b>${fn(updatedBillLines)} líneas</b> en tu pestaña <b>Detalle Facturación</b> con su <b>MAR SAP NUEVO</b> y <b>EAN SAP</b>.
+         </div>
+       </div>`
+    );
+  } catch (e) {
+    busy();
+    modal('Error al procesar Catálogo SAP', esc(e.message || e));
+  }
+}
+
+function viewSapCatalogModal() {
+  const prefix = S.brand + '|';
+  const items = Object.entries(S.sapCatalog || {})
+    .filter(([k]) => k.startsWith(prefix))
+    .map(([, v]) => v);
+  if (!items.length) return modal('Catálogo vacío', `Aún no has cargado registros SAP/EAN para ${S.brand}.`);
+
+  const m = $('modal');
+  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[88vh] flex flex-col p-6">
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <div>
+        <h3 class="text-lg font-semibold text-slate-900">Catálogo MAR SAP y EAN · ${esc(S.brand)}</h3>
+        <p class="text-xs text-slate-500">${fn(items.length)} registros guardados</p>
+      </div>
+      <button type="button" id="btnCloseSapCatView" class="btn !text-xs">Cerrar</button>
+    </div>
+    <input type="text" id="inpSearchSapCat" class="border rounded px-3 py-1.5 text-sm w-full mb-3 bg-white" placeholder="Buscar por Código Internacional, MAR SAP o EAN..." autofocus>
+    <div class="border rounded-lg overflow-auto flex-1">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="bg-slate-100 text-left text-slate-700 border-b">
+            <th class="px-3 py-2 font-semibold">Código Internacional</th>
+            <th class="px-3 py-2 font-semibold">Talla SAP</th>
+            <th class="px-3 py-2 font-semibold">ID Concatenado</th>
+            <th class="px-3 py-2 font-semibold">MAR SAP NUEVO</th>
+            <th class="px-3 py-2 font-semibold">EAN SAP</th>
+          </tr>
+        </thead>
+        <tbody id="tbodySapCat"></tbody>
+      </table>
+    </div>
+  </div>`;
+  m.classList.remove('hidden');
+
+  const draw = () => {
+    const q = $('inpSearchSapCat').value.trim().toLowerCase();
+    const filtered = q
+      ? items.filter(it => `${it.codIntl} ${it.tallaSap} ${it.marSap} ${it.eanSap}`.toLowerCase().includes(q))
+      : items;
+    $('tbodySapCat').innerHTML = filtered.slice(0, 300).map(it => `
+      <tr class="border-t hover:bg-slate-50">
+        <td class="px-3 py-1.5 font-mono font-semibold text-slate-900">${esc(it.codIntl)}</td>
+        <td class="px-3 py-1.5 font-mono">${esc(it.tallaSap)}</td>
+        <td class="px-3 py-1.5 font-mono text-slate-600">${esc(it.codIntl + ' ' + it.tallaSap)}</td>
+        <td class="px-3 py-1.5 font-mono font-bold text-sky-900">${esc(it.marSap)}</td>
+        <td class="px-3 py-1.5 font-mono text-emerald-800">${esc(it.eanSap)}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="p-6 text-center text-slate-400">Sin coincidencias.</td></tr>';
+  };
+  $('inpSearchSapCat').oninput = draw;
+  $('btnCloseSapCatView').onclick = () => m.classList.add('hidden');
+  draw();
+}
+
 /* ============ PARSER DE PTS COMEX Y CRUCE DE FACTURACIÓN (ADIDAS Y REEBOK) ============ */
 function normalizePtId(val) {
   if (val === null || val === undefined) return '';
@@ -3271,7 +3550,7 @@ async function processBrandBilling(file, ptsFile = null) {
               r.canalInicial, r.canalUnificado, r.material, r.gridValue, r.reqQty,
               r.qty, r.grossPrice, r.netWithoutRound, r.netValWithoutRound,
               r.netPrice, r.netValue, r.ean, r.upc, r.tallaSap,
-              r.idConcat, '', '',
+              r.idConcat, (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.marSap || ''), (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.eanSap || ''),
               r.actividad, r.grupo, r.embarque, r.categoria, r.genero, r.temporada, r.linea, r.compraExtra
             ]
           }))
@@ -3301,7 +3580,7 @@ async function processBrandBilling(file, ptsFile = null) {
               r.poNumber, r.canalInicial, r.canalUnificado, r.material, r.ean,
               r.gridValue, r.qty, r.netPrice, r.netValue, r.brandCode,
               r.salesDocOrder, r.tallaSap, r.idConcat,
-              '', '', r.actividad, r.grupo, r.embarque,
+              (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.marSap || ''), (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.eanSap || ''), r.actividad, r.grupo, r.embarque,
               r.categoria, r.genero, r.temporada, r.linea, r.compraExtra
             ]
           }))
@@ -3686,7 +3965,8 @@ function renderMain() {
     : '';
   const tplCount = Object.keys(getTplData(sbKey()).items).length;
   const sizeCount = S.sizePairs.length;
-  const mastersTotal = (tplCount > 0 ? 1 : 0) + (sizeCount > 0 ? 1 : 0);
+  const sapBrandCount = Object.keys(S.sapCatalog || {}).filter(k => k.startsWith(S.brand + '|')).length;
+  const mastersTotal = (tplCount > 0 ? 1 : 0) + (sizeCount > 0 ? 1 : 0) + (sapBrandCount > 0 ? 1 : 0);
 
   const tabs = [
     ['dash', 'Resumen', 'layout-dashboard', ''],
@@ -3748,10 +4028,10 @@ function renderMain() {
             <button type="button" class="btn !bg-violet-50/70 !text-violet-950 !border-violet-200 hover:!bg-violet-100/70" onclick="toggleHeaderMenu('ddMaestros', event)">
               <i data-lucide="database" class="w-4 h-4 text-violet-700"></i>
               <span>Maestros</span>
-              ${mastersTotal > 0 ? `<span class="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-violet-200 text-violet-900">${mastersTotal}/2</span>` : ''}
+              ${mastersTotal > 0 ? `<span class="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-violet-200 text-violet-900">${mastersTotal}/3</span>` : ''}
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-violet-500"></i>
             </button>
-            <div id="ddMaestros" class="dd-menu hidden !min-w-[285px]">
+            <div id="ddMaestros" class="dd-menu hidden !min-w-[305px]">
               <div class="dd-lbl">Catálogos de Homologación</div>
               <button type="button" class="dd-item" onclick="$('ddMaestros').classList.add('hidden'); promptPresentationTemplate()">
                 <i data-lucide="book-open-check" class="w-4 h-4 text-violet-700 shrink-0 mt-0.5"></i>
@@ -3771,6 +4051,16 @@ function renderMain() {
                     <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-900">${fn(sizeCount)} tallas</span>
                   </div>
                   <div class="text-[11px] text-slate-500">Conversión Talla Marca → SAP (Adidas & Reebok)</div>
+                </div>
+              </button>
+              <button type="button" class="dd-item" onclick="$('ddMaestros').classList.add('hidden'); promptSapCatalogManager()">
+                <i data-lucide="barcode" class="w-4 h-4 text-sky-700 shrink-0 mt-0.5"></i>
+                <div class="flex-1">
+                  <div class="font-semibold text-slate-900 flex items-center justify-between">
+                    <span>Catálogo MAR SAP y EAN</span>
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-900">${fn(sapBrandCount)} tallas</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500">Cruza ID (Material + Talla SAP) → MAR SAP y EAN</div>
                 </div>
               </button>
             </div>
@@ -4505,8 +4795,8 @@ function pager(n) {
   `;
 }
 
-/* ============ VISTA DEDICADA: DETALLE DE FACTURACIÓN CONSOLIDADO (CON FILTRO FORWARDER / EMBARQUE) ============ */
-function exportConsolidatedBillingExcel(filteredRows, headers) {
+/* ============ VISTA DEDICADA: DETALLE DE FACTURACIÓN CONSOLIDADO (CON TOTALES, FILTROS Y CRUCE SAP/EAN) ============ */
+function exportFilteredBillingExcel(filteredRows, headers) {
   if (!filteredRows || !filteredRows.length) {
     return modal('Sin datos', 'No hay registros de facturación para exportar con los filtros actuales.');
   }
@@ -4516,7 +4806,7 @@ function exportConsolidatedBillingExcel(filteredRows, headers) {
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), `FACTURACION_${S.brand.toUpperCase()}`);
-  XLSX.writeFile(wb, `DETALLE_FACTURACION_${S.brand}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `DETALLE_FACTURACION_FILTRADO_${S.brand}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 function vBilling() {
@@ -4524,8 +4814,6 @@ function vBilling() {
   const isReebok = String(S.brand).toUpperCase().includes('REEBOK');
   const hist = getBrandBillingHistory(S.brand);
   const allBillRows = getAllBrandBillingRows(S.brand);
-
-  // Fallback si existen registros P24 en la base pero aún no se ha cargado un detalle en historial
   const p24SeasonRows = S.rows.filter(r => st(r) === 'p');
 
   if (!allBillRows.length && !p24SeasonRows.length) {
@@ -4536,7 +4824,7 @@ function vBilling() {
         </div>
         <h2 class="text-base font-bold text-slate-900">Aún no hay Detalle de Facturación cargado en ${esc(S.brand)}</h2>
         <p class="text-xs text-slate-500 mt-1.5 leading-relaxed">
-          Aquí podrás consultar todas las facturas procesadas, ver qué PTs quedaron en <b>FORWARDER</b> vs. embarcados, desagregar canales iniciales y exportar el Excel maestro en cualquier momento.
+          Aquí podrás consultar todas las facturas procesadas, ver qué PTs quedaron en <b>FORWARDER</b> vs. embarcados, cruzar códigos <b>MAR SAP / EAN</b> y exportar el Excel filtrado en cualquier momento.
         </p>
         <button type="button" class="btn btn-p mt-4" onclick="openBillingWithPtsModal()">
           <i data-lucide="file-up" class="w-4 h-4"></i> Cargar Detalle de Facturación ${esc(S.brand)}
@@ -4547,226 +4835,287 @@ function vBilling() {
     return;
   }
 
-  // Si hay historial guardado de Detalle de Facturación, mostrar la tabla maestra completa
+  // Unificar estructura de filas y columnas (ya sea desde Historial de Facturación o desde P24 de la temporada)
+  let headers, codIdx, embIdx, factIdx, ptIdx, qtyIdx, netValIdx, tempIdx, canalIdx, marSapIdx, eanSapIdx, unifiedRows, isFallbackMode;
+
   if (allBillRows.length > 0) {
+    isFallbackMode = false;
     const latestBatch = hist[0];
-    const headers = latestBatch.headers;
-    const codIdx = latestBatch.codIdx;
-    const embIdx = latestBatch.embIdx;
-    const factIdx = latestBatch.factIdx;
-    const ptIdx = latestBatch.ptIdx;
-    const qtyIdx = isReebok ? 12 : 11;
-    const netValIdx = isReebok ? 17 : 13;
-    const tempIdx = isReebok ? 29 : 25;
-    const canalIdx = isReebok ? 7 : 6;
+    headers = latestBatch.headers;
+    codIdx = latestBatch.codIdx;
+    embIdx = latestBatch.embIdx;
+    factIdx = latestBatch.factIdx;
+    ptIdx = latestBatch.ptIdx;
+    qtyIdx = isReebok ? 12 : 11;
+    netValIdx = isReebok ? 17 : 13;
+    tempIdx = isReebok ? 29 : 25;
+    canalIdx = isReebok ? 7 : 6;
+    marSapIdx = isReebok ? 22 : 18;
+    eanSapIdx = isReebok ? 23 : 19;
+    unifiedRows = allBillRows;
+  } else {
+    isFallbackMode = true;
+    headers = [
+      'Temporada', 'Factura', 'Fecha de factura', 'Delivery / PT', 'EMBARQUE',
+      'Código', 'Talla', 'Talla marca', 'ID (Código + Talla SAP)', 'MAR SAP NUEVO', 'EAN SAP',
+      'Descripción', 'Color', 'Grupo', 'Categoría', 'Actividad', 'Línea', 'Género',
+      'Detalle compra', 'Referencia compra', 'Canal Inicial', 'Canal Final',
+      'Cantidad', 'FOB', 'Valor Neto', 'PVP', 'PVP Final', 'Fecha de ingreso embarque'
+    ];
+    codIdx = 5;
+    embIdx = 4;
+    factIdx = 1;
+    ptIdx = 3;
+    qtyIdx = 22;
+    netValIdx = 24;
+    tempIdx = 0;
+    canalIdx = 20;
+    marSapIdx = 9;
+    eanSapIdx = 10;
 
-    const totalUnits = allBillRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
-    const totalFob = allBillRows.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
-    const fwRows = allBillRows.filter(r => r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER');
-    const fwUnits = fwRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
-    const embUnits = totalUnits - fwUnits;
-    const uniqueInvoices = new Set(allBillRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean)).size;
-
-    const embarquesList = [...new Set(allBillRows.map(r => String(r.embarque || '').trim()).filter(Boolean))].sort();
-    const facturasList = [...new Set(allBillRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean))].sort();
-    const tempsList = [...new Set(allBillRows.map(r => String(r.cells[tempIdx] || '').trim()).filter(Boolean))].sort();
-    const canalesList = [...new Set(allBillRows.map(r => String(r.cells[canalIdx] || '').trim()).filter(Boolean))].sort();
-
-    const bt = S.billTab;
-    view.innerHTML = `
-      <div class="grid gap-3 grid-cols-2 xl:grid-cols-4 mb-4">
-        ${kpi('Total Facturado (' + S.brand + ')', fn(totalUnits), `${fn(uniqueInvoices)} factura(s) · ${fn(allBillRows.length)} líneas`, 'border-l-4 border-l-sky-600', totalFob)}
-        ${kpi('Con Embarque Asignado', fn(embUnits), 'PTs cruzados con COMEX', 'border-l-4 border-l-emerald-600')}
-        ${kpi('Pendiente en FORWARDER', fn(fwUnits), `${fn(fwRows.length)} líneas esperando embarque`, 'border-l-4 border-l-amber-500')}
-        <div class="bg-white rounded-lg border p-4 flex flex-col justify-between">
-          <div class="text-xs text-slate-500">Acciones de Facturación</div>
-          <div class="flex flex-col gap-1.5 mt-2">
-            <button type="button" onclick="openBillingWithPtsModal()" class="btn btn-p justify-center !text-xs !py-1.5">
-              <i data-lucide="plus" class="w-3.5 h-3.5"></i> Cargar Nueva Facturación
-            </button>
-            <button type="button" onclick="$('fPtsAssign').dataset.mode=''; $('fPtsAssign').click()" class="btn !bg-teal-50 !text-teal-900 !border-teal-300 hover:!bg-teal-100 justify-center !text-xs !py-1.5">
-              <i data-lucide="ship" class="w-3.5 h-3.5"></i> Asignar Embarque (PTs)
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="bg-white border rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2">
-        <div class="relative">
-          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5"></i>
-          <input type="text" id="btSearch" class="border rounded pl-8 pr-3 py-1.5 text-sm w-64 bg-white" placeholder="Buscar Código, Factura, PT, PO..." value="${esc(bt.q)}">
-        </div>
-        <select id="btEmb" class="border rounded px-2.5 py-1.5 text-sm bg-white font-medium">
-          <option value="">Todos los embarques (${embarquesList.length})</option>
-          <option value="__FORWARDER__">⚠️ Solo FORWARDER (${fn(fwRows.length)})</option>
-          <option value="__ASSIGNED__">✓ Solo con Embarque asignado</option>
-          ${embarquesList.map(e => `<option value="${esc(e)}" ${bt.embarque === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}
-        </select>
-        <select id="btFact" class="border rounded px-2.5 py-1.5 text-sm bg-white">
-          <option value="">Todas las facturas (${facturasList.length})</option>
-          ${facturasList.map(f => `<option value="${esc(f)}" ${bt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
-        </select>
-        <select id="btTemp" class="border rounded px-2.5 py-1.5 text-sm bg-white">
-          <option value="">Todas las temporadas</option>
-          ${tempsList.map(t => `<option value="${esc(t)}" ${bt.temporada === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-        </select>
-        <select id="btCanal" class="border rounded px-2.5 py-1.5 text-sm bg-white">
-          <option value="">Todos los canales iniciales</option>
-          ${canalesList.map(c => `<option value="${esc(c)}" ${bt.canal === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-        </select>
-        <button type="button" id="btExportBtn" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 ml-auto !text-xs">
-          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Exportar Vista a Excel
-        </button>
-      </div>
-
-      <div id="btTableWrap"></div>
-    `;
-
-    $('btEmb').value = bt.embarque;
-
-    let currentFiltered = [];
-    const drawBillingTable = () => {
-      const q = bt.q.trim().toLowerCase();
-      currentFiltered = allBillRows.filter(r => {
-        const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
-        if (bt.embarque === '__FORWARDER__' && !isFw) return false;
-        if (bt.embarque === '__ASSIGNED__' && isFw) return false;
-        if (bt.embarque && !bt.embarque.startsWith('__') && r.embarque !== bt.embarque) return false;
-        if (bt.factura && String(r.cells[factIdx] || '').trim() !== bt.factura) return false;
-        if (bt.temporada && String(r.cells[tempIdx] || '').trim() !== bt.temporada) return false;
-        if (bt.canal && String(r.cells[canalIdx] || '').trim() !== bt.canal) return false;
-        if (q) {
-          const hay = r.cells.join(' ').toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      });
-
-      const filtUnits = currentFiltered.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
-      const filtFob = currentFiltered.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
-      const totalPages = Math.max(1, Math.ceil(currentFiltered.length / bt.size));
-      if (bt.page > totalPages) bt.page = totalPages;
-      const slice = currentFiltered.slice((bt.page - 1) * bt.size, bt.page * bt.size);
-
-      $('btTableWrap').innerHTML = `
-        <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 380px)">
-          <table class="w-full text-xs border-collapse">
-            <thead>
-              <tr class="text-left text-slate-700 bg-slate-100 border-b">
-                ${headers.map((h, idx) => `<th class="px-2.5 py-2 whitespace-nowrap border-r border-slate-200/70 font-semibold ${idx === codIdx ? 'sticky left-0 z-10 bg-slate-100 shadow-[1px_0_0_#cbd5e1]' : ''}">${esc(h)}</th>`).join('')}
-              </tr>
-            </thead>
-            <tbody>
-              ${slice.map(r => {
-                const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
-                const rowBg = isFw ? 'bg-amber-50/50 hover:bg-amber-100/60' : 'hover:bg-sky-50/40';
-                return `<tr class="border-t ${rowBg}">
-                  ${headers.map((_, idx) => {
-                    const val = idx === embIdx ? r.embarque : r.cells[idx];
-                    const isNum = typeof val === 'number';
-                    const disp = isNum ? (Number.isInteger(val) ? fn(val) : val.toFixed(2)) : esc(val ?? '');
-                    const cellHtml = (idx === embIdx)
-                      ? (isFw
-                          ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px]">FORWARDER</span>`
-                          : `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[11px]">${disp}</span>`)
-                      : disp;
-                    return `<td class="px-2.5 py-1.5 whitespace-nowrap border-r border-slate-100 ${isNum ? 'num' : ''} ${idx === codIdx ? 'sticky left-0 bg-white font-bold text-slate-900 shadow-[1px_0_0_#e2e8f0]' : ''}">${cellHtml}</td>`;
-                  }).join('')}
-                </tr>`;
-              }).join('') || `<tr><td colspan="${headers.length}" class="p-8 text-center text-slate-400">No se encontraron líneas con los filtros seleccionados.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-        <div class="flex flex-wrap items-center justify-between gap-2 text-xs mt-3 bg-white border rounded-lg px-4 py-2.5">
-          <div class="flex items-center gap-4 text-slate-700">
-            <span>Mostrando <b>${fn(currentFiltered.length)}</b> líneas</span>
-            <span>Unidades filtradas: <b class="text-slate-900 text-sm">${fn(filtUnits)}</b></span>
-            <span>FOB Neto filtrado: <b class="text-indigo-950 text-sm">${fmoney(filtFob)}</b></span>
-          </div>
-          <div class="flex items-center gap-2">
-            <select id="btPageSize" class="border rounded px-2 py-1 bg-white">
-              ${[50, 100, 200].map(sz => `<option value="${sz}" ${bt.size === sz ? 'selected' : ''}>${sz}</option>`).join('')}
-            </select>
-            <button type="button" id="btPrev" class="btn !py-1 !px-2.5 !text-xs" ${bt.page <= 1 ? 'disabled' : ''}>Anterior</button>
-            <span class="font-medium text-slate-700">${bt.page} / ${totalPages}</span>
-            <button type="button" id="btNext" class="btn !py-1 !px-2.5 !text-xs" ${bt.page >= totalPages ? 'disabled' : ''}>Siguiente</button>
-          </div>
-        </div>
-      `;
-
-      $('btPageSize').onchange = e => { bt.size = Number(e.target.value); bt.page = 1; drawBillingTable(); };
-      $('btPrev').onclick = () => { if (bt.page > 1) { bt.page--; drawBillingTable(); } };
-      $('btNext').onclick = () => { if (bt.page < totalPages) { bt.page++; drawBillingTable(); } };
-    };
-
-    let timer;
-    const onFilterChange = () => {
-      bt.q = $('btSearch').value;
-      bt.embarque = $('btEmb').value;
-      bt.factura = $('btFact').value;
-      bt.temporada = $('btTemp').value;
-      bt.canal = $('btCanal').value;
-      bt.page = 1;
-      clearTimeout(timer);
-      timer = setTimeout(drawBillingTable, 150);
-    };
-
-    ['btSearch', 'btEmb', 'btFact', 'btTemp', 'btCanal'].forEach(id => {
-      $(id).oninput = onFilterChange;
+    unifiedRows = p24SeasonRows.map(r => {
+      const embStr = String(r['EMBARQUE'] || '').trim() || 'FORWARDER';
+      const isFw = embStr.toUpperCase() === 'FORWARDER';
+      const cod = String(r['Código'] || '').trim();
+      const talSap = String(r['Talla'] || '').trim();
+      const sapHit = lookupSapEanFromCatalog(S.brand, cod, talSap);
+      const vn = Number(r['Valor Neto'] || calcValorNeto(r));
+      return {
+        isForwarder: isFw,
+        embarque: embStr,
+        ptKey: normalizePtId(r['Delivery']),
+        cells: [
+          r['Temporada'] || S.season,
+          r['Factura'] || '',
+          r['Fecha de factura'] || '',
+          r['Delivery'] || '',
+          embStr,
+          cod,
+          talSap,
+          r['Talla marca'] || '',
+          `${cod} ${talSap}`.trim(),
+          sapHit ? sapHit.marSap : '',
+          sapHit ? sapHit.eanSap : '',
+          r['Descripción'] || '',
+          r['Color'] || '',
+          r['Grupo'] || '',
+          r['Categoría'] || '',
+          r['Actividad'] || '',
+          r['Línea'] || '',
+          r['Género'] || '',
+          r['Detalle compra'] || 'COMPRA CANAL',
+          r['Referencia compra'] || '',
+          r['Canal Inicial'] || '',
+          r['Canal Final'] || '',
+          Number(r['Cantidad'] || 0),
+          Number(r['FOB'] || 0),
+          vn,
+          Number(r['PVP'] || 0),
+          Number(r['PVP Final'] || 0),
+          r['Fecha de ingreso embarque'] || ''
+        ]
+      };
     });
-    $('btExportBtn').onclick = () => exportConsolidatedBillingExcel(currentFiltered, headers);
-
-    icons();
-    drawBillingTable();
-    return;
   }
 
-  // Fallback: si la temporada actual tiene P24 cargados previamente pero aún no hay snapshot en historial
-  const fwP24 = p24SeasonRows.filter(r => String(r['EMBARQUE'] || '').trim().toUpperCase() === 'FORWARDER');
-  const totalP24Units = p24SeasonRows.reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
-  const fwP24Units = fwP24.reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
+  const totalUnits = unifiedRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+  const totalFob = unifiedRows.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
+  const fwRows = unifiedRows.filter(r => r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER');
+  const fwUnits = fwRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+  const embUnits = totalUnits - fwUnits;
+  const uniqueInvoices = new Set(unifiedRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean)).size;
+  const missingSapLines = unifiedRows.filter(r => !String(r.cells[marSapIdx] || '').trim()).length;
+
+  const embarquesList = [...new Set(unifiedRows.map(r => String(r.embarque || '').trim()).filter(Boolean))].sort();
+  const codigosList = [...new Set(unifiedRows.map(r => String(r.cells[codIdx] || '').trim()).filter(Boolean))].sort();
+  const facturasList = [...new Set(unifiedRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean))].sort();
+  const tempsList = [...new Set(unifiedRows.map(r => String(r.cells[tempIdx] || '').trim()).filter(Boolean))].sort();
+  const canalesList = [...new Set(unifiedRows.map(r => String(r.cells[canalIdx] || '').trim()).filter(Boolean))].sort();
+
+  const bt = S.billTab;
   view.innerHTML = `
-    <div class="p-4 rounded-lg bg-sky-50 border border-sky-200 text-sky-950 text-xs mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <b>Vista de Facturación desde Matriz (${S.brand} ${esc(S.season)}):</b> Se muestran los <b>${fn(p24SeasonRows.length)} registros facturados (P24)</b> actuales. Cuando proceses tu próximo archivo de <i>Detalle de Facturación</i>, aquí aparecerán automáticamente todas sus columnas completas de SAP.
+    ${isFallbackMode ? `
+    <div class="p-3 rounded-lg bg-sky-50 border border-sky-200 text-sky-950 text-xs mb-3 flex flex-wrap items-center justify-between gap-2">
+      <span>Mostrando las <b>${fn(unifiedRows.length)} líneas facturadas (P24)</b> de <b>${S.brand} ${esc(S.season)}</b> con todas sus columnas (${headers.length} cols). Al subir un nuevo archivo en <i>Cargar Detalle de Facturación</i> se mostrará el formato completo SAP de ${esc(S.brand)}.</span>
+    </div>` : ''}
+
+    <div class="grid gap-3 grid-cols-2 xl:grid-cols-4 mb-4">
+      ${kpi('Total Facturado (' + S.brand + ')', fn(totalUnits), `${fn(uniqueInvoices)} factura(s) · ${fn(unifiedRows.length)} líneas`, 'border-l-4 border-l-sky-600', totalFob)}
+      ${kpi('Con Embarque Asignado', fn(embUnits), 'PTs cruzados con COMEX', 'border-l-4 border-l-emerald-600')}
+      ${kpi('Pendiente en FORWARDER', fn(fwUnits), `${fn(fwRows.length)} líneas esperando embarque`, 'border-l-4 border-l-amber-500')}
+      <div class="bg-white rounded-lg border p-3.5 flex flex-col justify-between">
+        <div class="text-xs font-semibold text-slate-600 flex items-center justify-between">
+          <span>Cruce SAP / Embarques</span>
+          ${missingSapLines > 0 ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">${fn(missingSapLines)} sin SAP</span>` : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">SAP OK</span>`}
+        </div>
+        <div class="flex flex-col gap-1.5 mt-2">
+          <button type="button" onclick="promptSapCatalogManager()" class="btn !bg-sky-50 !text-sky-950 !border-sky-300 hover:!bg-sky-100 justify-center !text-xs !py-1.5">
+            <i data-lucide="barcode" class="w-3.5 h-3.5 text-sky-700"></i> Actualizar MAR SAP y EAN
+          </button>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button type="button" onclick="openBillingWithPtsModal()" class="btn btn-p justify-center !text-[11px] !py-1.5 !px-2">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> Facturación
+            </button>
+            <button type="button" onclick="$('fPtsAssign').dataset.mode=''; $('fPtsAssign').click()" class="btn !bg-teal-50 !text-teal-900 !border-teal-300 hover:!bg-teal-100 justify-center !text-[11px] !py-1.5 !px-2">
+              <i data-lucide="ship" class="w-3.5 h-3.5"></i> PTs COMEX
+            </button>
+          </div>
+        </div>
       </div>
-      <button type="button" class="btn btn-p !text-xs" onclick="openBillingWithPtsModal()">Cargar Detalle de Facturación</button>
     </div>
-    <div class="grid gap-3 grid-cols-2 xl:grid-cols-3 mb-4">
-      ${kpi('Facturado en ' + S.season, fn(totalP24Units), `${fn(p24SeasonRows.length)} líneas en P24`, 'border-l-4 border-l-emerald-600')}
-      ${kpi('En FORWARDER', fn(fwP24Units), `${fn(fwP24.length)} líneas pendientes de embarque`, 'border-l-4 border-l-amber-500')}
-      ${kpi('Embarcados', fn(totalP24Units - fwP24Units), 'Con embarque asignado', 'border-l-4 border-l-sky-600')}
+
+    <div class="bg-white border rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2">
+      <div class="relative">
+        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5"></i>
+        <input type="text" id="btSearch" class="border rounded pl-8 pr-3 py-1.5 text-sm w-56 bg-white" placeholder="Buscar Código, Factura, PT, SAP..." value="${esc(bt.q)}">
+      </div>
+      <select id="btEmb" class="border rounded px-2.5 py-1.5 text-sm bg-white font-medium">
+        <option value="">Todos los embarques (${embarquesList.length})</option>
+        <option value="__FORWARDER__">⚠️ Solo FORWARDER (${fn(fwRows.length)})</option>
+        <option value="__ASSIGNED__">✓ Solo con Embarque asignado</option>
+        ${embarquesList.map(e => `<option value="${esc(e)}" ${bt.embarque === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}
+      </select>
+      <select id="btCod" class="border rounded px-2.5 py-1.5 text-sm bg-white font-mono">
+        <option value="">Todos los códigos (${codigosList.length})</option>
+        ${codigosList.map(c => `<option value="${esc(c)}" ${bt.codigo === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+      </select>
+      <select id="btFact" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+        <option value="">Todas las facturas (${facturasList.length})</option>
+        ${facturasList.map(f => `<option value="${esc(f)}" ${bt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
+      </select>
+      <select id="btTemp" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+        <option value="">Todas las temporadas</option>
+        ${tempsList.map(t => `<option value="${esc(t)}" ${bt.temporada === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+      </select>
+      <select id="btCanal" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+        <option value="">Todos los canales</option>
+        ${canalesList.map(c => `<option value="${esc(c)}" ${bt.canal === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+      </select>
+      <button type="button" id="btExportBtn" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 ml-auto !text-xs">
+        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Descargar Excel Filtrado
+      </button>
     </div>
-    <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 340px)">
-      <table class="w-full text-xs">
-        <thead>
-          <tr class="text-left text-slate-600 bg-slate-100 border-b">
-            ${['Factura', 'F. Factura', 'Delivery / PT', 'Embarque', 'Código', 'Descripción', 'Talla', 'Canal Inicial', 'Canal Final', 'Cant.', 'FOB', 'Valor Neto'].map((h, i) => `<th class="px-3 py-2 whitespace-nowrap ${i >= 9 ? 'text-right' : ''}">${h}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${p24SeasonRows.slice(0, 200).map(r => {
-            const isFw = String(r['EMBARQUE'] || '').trim().toUpperCase() === 'FORWARDER';
-            return `<tr class="border-t ${isFw ? 'bg-amber-50/50' : ''}">
-              <td class="px-3 py-1.5 font-semibold">${esc(r['Factura'] || '')}</td>
-              <td class="px-3 py-1.5">${esc(r['Fecha de factura'] || '')}</td>
-              <td class="px-3 py-1.5 font-mono">${esc(r['Delivery'] || '')}</td>
-              <td class="px-3 py-1.5">${isFw ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold">FORWARDER</span>' : esc(r['EMBARQUE'] || '')}</td>
-              <td class="px-3 py-1.5 font-bold">${esc(r['Código'] || '')}</td>
-              <td class="px-3 py-1.5 max-w-[14rem] truncate">${esc(r['Descripción'] || '')}</td>
-              <td class="px-3 py-1.5">${esc(r['Talla'] || '')}</td>
-              <td class="px-3 py-1.5">${esc(r['Canal Inicial'] || '')}</td>
-              <td class="px-3 py-1.5 font-semibold text-indigo-900">${esc(r['Canal Final'] || '')}</td>
-              <td class="px-3 py-1.5 num font-bold">${fn(r['Cantidad'])}</td>
-              <td class="px-3 py-1.5 num">${Number(r['FOB'] || 0).toFixed(2)}</td>
-              <td class="px-3 py-1.5 num font-semibold">${fmoney(r['Valor Neto'] || calcValorNeto(r))}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
+
+    <div id="btTableWrap"></div>
   `;
+
+  $('btEmb').value = bt.embarque;
+  $('btCod').value = bt.codigo;
+
+  let currentFiltered = [];
+  const drawBillingTable = () => {
+    const q = bt.q.trim().toLowerCase();
+    currentFiltered = unifiedRows.filter(r => {
+      const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
+      if (bt.embarque === '__FORWARDER__' && !isFw) return false;
+      if (bt.embarque === '__ASSIGNED__' && isFw) return false;
+      if (bt.embarque && !bt.embarque.startsWith('__') && r.embarque !== bt.embarque) return false;
+      if (bt.codigo && String(r.cells[codIdx] || '').trim() !== bt.codigo) return false;
+      if (bt.factura && String(r.cells[factIdx] || '').trim() !== bt.factura) return false;
+      if (bt.temporada && String(r.cells[tempIdx] || '').trim() !== bt.temporada) return false;
+      if (bt.canal && String(r.cells[canalIdx] || '').trim() !== bt.canal) return false;
+      if (q) {
+        const hay = r.cells.join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const filtUnits = currentFiltered.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+    const filtFob = currentFiltered.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
+    const totalPages = Math.max(1, Math.ceil(currentFiltered.length / bt.size));
+    if (bt.page > totalPages) bt.page = totalPages;
+    const slice = currentFiltered.slice((bt.page - 1) * bt.size, bt.page * bt.size);
+
+    $('btTableWrap').innerHTML = `
+      <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 395px)">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-left text-slate-700 bg-slate-100 border-b">
+              ${headers.map((h, idx) => `<th class="px-2.5 py-2 whitespace-nowrap border-r border-slate-200/70 font-semibold ${idx === qtyIdx || idx === netValIdx ? 'text-right' : ''} ${idx === codIdx ? 'sticky left-0 z-10 bg-slate-100 shadow-[1px_0_0_#cbd5e1]' : ''}">${esc(h)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${slice.map(r => {
+              const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
+              const rowBg = isFw ? 'bg-amber-50/50 hover:bg-amber-100/60' : 'hover:bg-sky-50/40';
+              return `<tr class="border-t ${rowBg}">
+                ${headers.map((_, idx) => {
+                  const val = idx === embIdx ? r.embarque : r.cells[idx];
+                  const isNum = typeof val === 'number';
+                  const disp = isNum
+                    ? (idx === netValIdx ? fmoney(val) : (Number.isInteger(val) ? fn(val) : val.toFixed(2)))
+                    : esc(val ?? '');
+                  let cellHtml = disp;
+                  if (idx === embIdx) {
+                    cellHtml = isFw
+                      ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px]">FORWARDER</span>`
+                      : `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[11px]">${disp}</span>`;
+                  } else if (idx === marSapIdx && val) {
+                    cellHtml = `<span class="font-mono font-bold text-sky-900">${disp}</span>`;
+                  } else if (idx === eanSapIdx && val) {
+                    cellHtml = `<span class="font-mono text-emerald-800">${disp}</span>`;
+                  }
+                  return `<td class="px-2.5 py-1.5 whitespace-nowrap border-r border-slate-100 ${isNum ? 'num' : ''} ${idx === qtyIdx || idx === netValIdx ? 'font-semibold' : ''} ${idx === codIdx ? 'sticky left-0 bg-white font-bold text-slate-900 shadow-[1px_0_0_#e2e8f0]' : ''}">${cellHtml}</td>`;
+                }).join('')}
+              </tr>`;
+            }).join('') || `<tr><td colspan="${headers.length}" class="p-8 text-center text-slate-400">No se encontraron líneas con los filtros seleccionados.</td></tr>`}
+          </tbody>
+          ${currentFiltered.length ? `
+          <tfoot>
+            <tr class="font-bold text-slate-900 bg-slate-100 border-t-2 border-slate-300">
+              ${headers.map((_, idx) => {
+                if (idx === 0) return `<td class="px-2.5 py-2.5 whitespace-nowrap text-xs uppercase tracking-wider text-slate-600 sticky left-0 bg-slate-100">TOTAL FILTRADO (${fn(currentFiltered.length)} filas)</td>`;
+                if (idx === qtyIdx) return `<td class="px-2.5 py-2.5 num text-slate-950 text-sm bg-emerald-50/80 border-x border-slate-200">${fn(filtUnits)}</td>`;
+                if (idx === netValIdx) return `<td class="px-2.5 py-2.5 num text-indigo-950 text-sm bg-indigo-50/80 border-x border-slate-200">${fmoney(filtFob)}</td>`;
+                return `<td class="px-2.5 py-2.5"></td>`;
+              }).join('')}
+            </tr>
+          </tfoot>` : ''}
+        </table>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-2 text-xs mt-3 bg-white border rounded-lg px-4 py-2.5">
+        <div class="flex flex-wrap items-center gap-4 text-slate-700">
+          <span>Mostrando <b>${fn(currentFiltered.length)}</b> de <b>${fn(unifiedRows.length)}</b> líneas</span>
+          <span class="px-2.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-950">Total Cantidad: <b class="text-sm">${fn(filtUnits)} unid.</b></span>
+          <span class="px-2.5 py-1 rounded bg-indigo-50 border border-indigo-200 text-indigo-950">Total Valor Neto: <b class="text-sm">${fmoney(filtFob)}</b></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="btPageSize" class="border rounded px-2 py-1 bg-white">
+            ${[50, 100, 200].map(sz => `<option value="${sz}" ${bt.size === sz ? 'selected' : ''}>${sz}</option>`).join('')}
+          </select>
+          <button type="button" id="btPrev" class="btn !py-1 !px-2.5 !text-xs" ${bt.page <= 1 ? 'disabled' : ''}>Anterior</button>
+          <span class="font-medium text-slate-700">${bt.page} / ${totalPages}</span>
+          <button type="button" id="btNext" class="btn !py-1 !px-2.5 !text-xs" ${bt.page >= totalPages ? 'disabled' : ''}>Siguiente</button>
+        </div>
+      </div>
+    `;
+
+    $('btPageSize').onchange = e => { bt.size = Number(e.target.value); bt.page = 1; drawBillingTable(); };
+    $('btPrev').onclick = () => { if (bt.page > 1) { bt.page--; drawBillingTable(); } };
+    $('btNext').onclick = () => { if (bt.page < totalPages) { bt.page++; drawBillingTable(); } };
+  };
+
+  let timer;
+  const onFilterChange = () => {
+    bt.q = $('btSearch').value;
+    bt.embarque = $('btEmb').value;
+    bt.codigo = $('btCod').value;
+    bt.factura = $('btFact').value;
+    bt.temporada = $('btTemp').value;
+    bt.canal = $('btCanal').value;
+    bt.page = 1;
+    clearTimeout(timer);
+    timer = setTimeout(drawBillingTable, 150);
+  };
+
+  ['btSearch', 'btEmb', 'btCod', 'btFact', 'btTemp', 'btCanal'].forEach(id => {
+    $(id).oninput = onFilterChange;
+  });
+  $('btExportBtn').onclick = () => exportFilteredBillingExcel(currentFiltered, headers);
+
   icons();
+  drawBillingTable();
 }
 
 function vPrices() {
@@ -4895,6 +5244,7 @@ $('fPtsAssign').onchange = e => {
   }
 };
 $('fSizeMap').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadSizeMapExcel(f); };
+$('fSapCatalog').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadSapCatalogExcel(f); };
 $('fJsonImport').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importJsonBackup(f); };
 $('fBrandLogo').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) handleLogoUpload(f); };
 $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadPresentationTemplate(f); };
@@ -4912,6 +5262,8 @@ $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value
     if (savedTemplates) S.templates = savedTemplates;
     const savedSizePairs = await rq(db.transaction('meta').objectStore('meta').get('sizePairs'));
     if (Array.isArray(savedSizePairs)) S.sizePairs = savedSizePairs;
+    const savedSapCat = await rq(db.transaction('meta').objectStore('meta').get('sapCatalog'));
+    if (savedSapCat && typeof savedSapCat === 'object') S.sapCatalog = savedSapCat;
     const savedBillingHist = await rq(db.transaction('meta').objectStore('meta').get('billingHistory'));
     if (savedBillingHist && typeof savedBillingHist === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...savedBillingHist };
