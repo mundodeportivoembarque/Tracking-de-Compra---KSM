@@ -2694,7 +2694,7 @@ async function processBrandBilling(file, ptsFile = null) {
     // Para Reebok priorizar hoja que empiece con OC o la segunda hoja si existe TD primero
     let targetSheet = wb.SheetNames[0];
     if (isReebok) {
-      targetSheet = wb.SheetNames.find(n => norm(n).startsWith('oc') || norm(n).includes('factura')) || (wb.SheetNames.length > 1 ? wb.SheetNames[1] : wb.SheetNames[0]);
+      targetSheet = wb.SheetNames.find(n => norm(n).startsWith('oc') || norm(n).includes('factura')) || (wb.Sheets['Sheet1'] ? 'Sheet1' : wb.SheetNames[0]);
     } else {
       targetSheet = wb.Sheets['Sheet1'] ? 'Sheet1' : (wb.Sheets['Hoja1'] ? 'Hoja1' : wb.SheetNames[0]);
     }
@@ -2746,7 +2746,6 @@ async function processBrandBilling(file, ptsFile = null) {
     const ptsForwarder = new Set();
     let unitsInEmb = 0;
     let unitsForwarder = 0;
-    let detectedInvoiceDateInFile = '';
 
     for (const o of raw) {
       const materialRaw = isReebok
@@ -2762,8 +2761,7 @@ async function processBrandBilling(file, ptsFile = null) {
         ? String(getRowVal(o, ['No FACTURA ', 'No FACTURA', 'No Factura', 'Invoice Number', 'Factura']) ?? '').trim()
         : String(getRowVal(o, ['Invoice Number', 'Factura', 'No FACTURA']) ?? '').trim();
       const invCodeRbk = isReebok ? String(getRowVal(o, ['FACTURA ', 'FACTURA']) ?? '').trim() : '';
-      const invDate = fdate(getRowVal(o, ['Invoice Date', 'Fecha de factura', 'Additional Date', 'Requested deliv.date']));
-      if (invDate && !detectedInvoiceDateInFile) detectedInvoiceDateInFile = invDate;
+      const invDate = fdate(getRowVal(o, ['FECHA DE FACTURA', 'Fecha de factura', 'Invoice Date', 'Additional Date', 'Requested deliv.date']));
 
       // En Adidas el PT es Delivery; en Reebok el PT es Sales Order 1
       const ptRaw = isReebok
@@ -2848,7 +2846,7 @@ async function processBrandBilling(file, ptsFile = null) {
       const categoria = (tplItem && tplItem.categoria) ? tplItem.categoria : String(getRowVal(o, ['CATEGORÍA', 'CATEGORIA', 'Division']) ?? '').trim();
       const genero = (tplItem && tplItem.genero) ? tplItem.genero : String(getRowVal(o, ['GÉNERO', 'GENERO', 'Gender']) ?? '').trim();
       const linea = (tplItem && tplItem.linea) ? tplItem.linea : String(getRowVal(o, ['LINEA', 'Línea', 'Product line']) ?? '').trim();
-      const descripcion = (tplItem && tplItem.descripcion) ? tplItem.descripcion : String(getRowVal(o, ['Material Description', 'Descripción']) ?? '').trim();
+      const descripcion = (tplItem && tplItem.descripcion) ? tplItem.descripcion : String(getRowVal(o, ['Material Description', 'Name', 'Descripción']) ?? '').trim();
       const color = (tplItem && tplItem.color) ? tplItem.color : String(getRowVal(o, ['Color']) ?? '').trim();
 
       const groupKey = `${invNum}|${ptRaw}|${poRaw}|${codNorm}|${normTalla(chosenTallaSap)}|${resolvedEmbarque}`;
@@ -3089,7 +3087,7 @@ async function processBrandBilling(file, ptsFile = null) {
     const buildPreviewSnapshot = () => {
       if (isReebok) {
         const headers = [
-          'Status', 'Sold-to party', 'Sales Order 1', 'No FACTURA ', 'FACTURA ', 'Purchase No',
+          'Status', 'Sold-to party', 'Sales Order 1', 'No FACTURA ', 'FECHA DE FACTURA', 'FACTURA ', 'Purchase No',
           'CANAL INICIAL', 'CANAL UNIFICADO', 'NEW Material', 'Grid Value', 'Reques quantity',
           'Final Delivery QTY TOTAL', 'Gross Price', 'Net Without Round', 'Net value (without Round)',
           'Net price Round', 'Net value Round (DN)', 'EAN VERIFICADO', 'UPC', 'TALLA SAP',
@@ -3099,8 +3097,8 @@ async function processBrandBilling(file, ptsFile = null) {
         return {
           brand: S.brand,
           headers,
-          codIdx: 8,
-          embIdx: 25,
+          codIdx: 9,
+          embIdx: 26,
           factIdx: 3,
           ptIdx: 2,
           rows: disaggregatedLines.map(r => ({
@@ -3108,7 +3106,7 @@ async function processBrandBilling(file, ptsFile = null) {
             embarque: r.embarque,
             ptKey: r.ptKey,
             cells: [
-              r.status, r.soldToParty, r.ptKey, r.invoiceNumber, r.invCodeRbk, r.poNumber,
+              r.status, r.soldToParty, r.ptKey, r.invoiceNumber, r.invoiceDate, r.invCodeRbk, r.poNumber,
               r.canalInicial, r.canalUnificado, r.material, r.gridValue, r.reqQty,
               r.qty, r.grossPrice, r.netWithoutRound, r.netValWithoutRound,
               r.netPrice, r.netValue, r.ean, r.upc, r.tallaSap,
@@ -3194,18 +3192,14 @@ async function processBrandBilling(file, ptsFile = null) {
          ${ptsSummaryHtml}
          ${dupWarningHtml}
          ${unmatchedHtml}
-         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
            <div>
-             <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de Factura ${isReebok ? '(Reebok)' : '(Opcional)'}</label>
-             <input type="date" id="inpBillFechaFact" class="border rounded px-2 py-1.5 text-xs w-full bg-white" value="${esc(detectedInvoiceDateInFile)}">
+             <label class="block text-xs font-semibold text-slate-700 mb-1">Embarque (Solo PTs cruzados)</label>
+             <input type="text" id="inpBillEmb" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white font-semibold" placeholder="Ej. PANAMA 70" value="${esc(defaultPtsEmb)}">
            </div>
            <div>
-             <label class="block text-xs font-semibold text-slate-700 mb-1">Embarque (PTs cruzados)</label>
-             <input type="text" id="inpBillEmb" class="border rounded px-2 py-1.5 text-xs w-full bg-white font-semibold" placeholder="Ej. PANAMA 70" value="${esc(defaultPtsEmb)}">
-           </div>
-           <div>
-             <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha ingreso embarque</label>
-             <input type="date" id="inpBillFechaIng" class="border rounded px-2 py-1.5 text-xs w-full bg-white">
+             <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de ingreso embarque</label>
+             <input type="date" id="inpBillFechaIng" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white">
            </div>
          </div>
          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
@@ -3222,18 +3216,15 @@ async function processBrandBilling(file, ptsFile = null) {
     icons();
     if (ch !== 'ok') return;
 
-    const userFechaFact = $('inpBillFechaFact') ? $('inpBillFechaFact').value.trim() : '';
     const userEmb = $('inpBillEmb') ? $('inpBillEmb').value.trim() : '';
     const userFechaIng = $('inpBillFechaIng') ? $('inpBillFechaIng').value.trim() : '';
 
     disaggregatedLines.forEach(l => {
-      if (userFechaFact) l.invoiceDate = userFechaFact;
       if (!l.isForwarder && userEmb) l.embarque = userEmb;
     });
     S.lastBillingPreview = buildPreviewSnapshot();
 
     appliedP24Rows.forEach(item => {
-      if (userFechaFact) item.row['Fecha de factura'] = userFechaFact;
       if (!item.isForwarder) {
         if (userEmb) item.row['EMBARQUE'] = userEmb;
         if (userFechaIng) item.row['Fecha de ingreso embarque'] = userFechaIng;
