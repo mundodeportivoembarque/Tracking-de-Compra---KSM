@@ -2467,21 +2467,36 @@ function resolveTallaSapFromGrid(gridVal, explicitSap, lookupMap, poolForSku = [
 function getBrandTplCatalogMap(brand = S.brand) {
   const tplBySeason = {};
   const globalTplItems = {};
+  const headerIdxByName = {};
   for (const [k, entry] of Object.entries(S.templates || {})) {
     const [bName, sName] = k.split('|');
     if (bName !== brand) continue;
     const items = entry && entry.items ? entry.items : (entry || {});
     tplBySeason[norm(sName)] = items;
     Object.assign(globalTplItems, items);
+    if (entry && Array.isArray(entry.headers)) {
+      entry.headers.forEach((h, idx) => {
+        const nh = norm(h);
+        if (nh && headerIdxByName[nh] === undefined) headerIdxByName[nh] = idx;
+      });
+    }
   }
-  return { tplBySeason, globalTplItems };
+  return { tplBySeason, globalTplItems, headerIdxByName };
 }
 
-function getTplFieldFromEntry(item, fieldKey, headerAliases = []) {
+function getTplFieldFromEntry(item, fieldKey, headerAliases = [], headerIdxByName = null) {
   if (!item) return '';
   if (item[fieldKey]) return String(item[fieldKey]).trim();
-  // Si el usuario cargó la plantilla antes de este cambio y fullRow tiene TIPO_VENTA, extraerlo directamente de fullRow
   if (Array.isArray(item.fullRow) && headerAliases.length) {
+    if (headerIdxByName) {
+      for (const alias of headerAliases) {
+        const idx = headerIdxByName[alias];
+        if (idx !== undefined && item.fullRow[idx] !== undefined && String(item.fullRow[idx]).trim() !== '') {
+          return String(item.fullRow[idx]).trim();
+        }
+      }
+      return '';
+    }
     for (const entry of Object.values(S.templates || {})) {
       if (entry && Array.isArray(entry.headers)) {
         const idx = entry.headers.findIndex(h => headerAliases.includes(norm(h)));
@@ -2499,12 +2514,24 @@ function refreshBillingHistoryEnrichment(brand = S.brand) {
   if (!hist.length) return 0;
   const isRbk = String(brand).toUpperCase().includes('REEBOK');
   const sizeLookup = buildTallaSapLookup();
-  const { tplBySeason, globalTplItems } = getBrandTplCatalogMap(brand);
+  const { tplBySeason, globalTplItems, headerIdxByName } = getBrandTplCatalogMap(brand);
+
+  // Pre-indexar S.rows por código en O(N) para evitar búsquedas O(N^2)
+  const skuRowsMap = new Map();
+  if (S.brand === brand && Array.isArray(S.rows)) {
+    for (const x of S.rows) {
+      const c = norm(x['Código']);
+      if (!c) continue;
+      let arr = skuRowsMap.get(c);
+      if (!arr) { arr = []; skuRowsMap.set(c, arr); }
+      arr.push(x);
+    }
+  }
+
   let updatedCount = 0;
 
   for (const batch of hist) {
     if (!Array.isArray(batch.rows) || !Array.isArray(batch.headers)) continue;
-    // Normalizar encabezados viejos en lotes guardados previamente
     const oldIdHdr = isRbk ? 'ID (NEW MATERIAL + "ESPACIO EN BLANCO" + TALLA SAP' : 'ID (material + "espacio en blanco" + talla sap")';
     const idColIdx = batch.headers.findIndex(h => h === oldIdHdr || norm(h).startsWith('idnewmaterial') || norm(h).startsWith('idmaterial'));
     if (idColIdx !== -1) batch.headers[idColIdx] = 'ID SAP';
@@ -2528,13 +2555,12 @@ function refreshBillingHistoryEnrichment(brand = S.brand) {
       const mat = String(r.cells[codIdx] || '').trim();
       const codNorm = norm(mat);
       const gridVal = String(r.cells[gridIdx] || '').trim();
-      const prevTalSap = String(r.cells[talSapIdx] || '').trim();
 
       const seasonDet = String(r.cells[tempIdx] || '').trim();
       const seasonTpl = tplBySeason[norm(seasonDet)] || globalTplItems;
       const tplItem = seasonTpl ? seasonTpl[codNorm] : null;
       const rowGrupo = (tplItem && tplItem.grupo) ? tplItem.grupo : String(r.cells[grpIdx] || '').trim();
-      const skuRowsInMem = (S.brand === brand ? S.rows : []).filter(x => norm(x['Código']) === codNorm);
+      const skuRowsInMem = skuRowsMap.get(codNorm) || [];
 
       // 1. Recalcular TALLA SAP desde maestro de tallas, Catálogo SAP, base de compra y Grupo
       const newTalSap = resolveTallaSapFromGrid(gridVal, '', sizeLookup, skuRowsInMem, {
@@ -2557,7 +2583,7 @@ function refreshBillingHistoryEnrichment(brand = S.brand) {
 
       // 3. Actualizar CATEGORÍA (desde TIPO_VENTA de la Plantilla) y demás atributos
       if (tplItem) {
-        const tipoVenta = getTplFieldFromEntry(tplItem, 'categoria', ['tipoventa', 'categoria']);
+        const tipoVenta = getTplFieldFromEntry(tplItem, 'categoria', ['tipoventa', 'categoria'], headerIdxByName);
         if (tipoVenta && r.cells[catIdx] !== tipoVenta) { r.cells[catIdx] = tipoVenta; dirty = true; }
         if (tplItem.actividad && r.cells[actIdx] !== tplItem.actividad) { r.cells[actIdx] = tplItem.actividad; dirty = true; }
         if (tplItem.grupo && r.cells[grpIdx] !== tplItem.grupo) { r.cells[grpIdx] = tplItem.grupo; dirty = true; }
@@ -2582,7 +2608,7 @@ function refreshBillingHistoryEnrichment(brand = S.brand) {
 function buildSapCatalogKey(brand, codIntl, tallaSap) {
   const b = String(brand || S.brand).trim();
   const c = String(codIntl || '').trim().toUpperCase();
-  const t = normTalla(tallaSap).toUpperCase();
+  const t = normTalla(sanitizeSapSize(tallaSap)).toUpperCase();
   return `${b}|${c}|${t}`;
 }
 
@@ -2590,8 +2616,8 @@ function lookupSapEanFromCatalog(brand, codIntl, tallaSap) {
   if (!S.sapCatalog) return null;
   const k1 = buildSapCatalogKey(brand, codIntl, tallaSap);
   if (S.sapCatalog[k1]) return S.sapCatalog[k1];
-  // Respaldo con talla sin normalizar por si hubiera diferencia de ceros
-  const k2 = `${String(brand || S.brand).trim()}|${String(codIntl || '').trim().toUpperCase()}|${String(tallaSap || '').trim().toUpperCase()}`;
+  const cleanRaw = sanitizeSapSize(tallaSap).toUpperCase();
+  const k2 = `${String(brand || S.brand).trim()}|${String(codIntl || '').trim().toUpperCase()}|${cleanRaw}`;
   return S.sapCatalog[k2] || null;
 }
 
@@ -3367,13 +3393,19 @@ async function processBrandBilling(file, ptsFile = null) {
       Object.assign(globalTplItems, items);
     }
 
-    // Indexar filas 10A disponibles por Temporada+Código y Código
+    // Indexar filas 10A disponibles y todas las filas de la marca por Código en O(N)
     const rows10ABySeasonCod = new Map();
     const rows10AByCod = new Map();
+    const allBrandRowsByCod = new Map();
     allBrandRows.forEach(r => {
+      const cod = norm(r['Código']);
+      if (cod) {
+        let allArr = allBrandRowsByCod.get(cod);
+        if (!allArr) { allArr = []; allBrandRowsByCod.set(cod, allArr); }
+        allArr.push(r);
+      }
       if (st(r) === 'o' && Number(r['Cantidad'] || 0) > 0) {
         const temp = norm(r.season || r['Temporada']);
-        const cod = norm(r['Código']);
         const scKey = `${temp}|${cod}`;
         if (!rows10ABySeasonCod.has(scKey)) rows10ABySeasonCod.set(scKey, []);
         rows10ABySeasonCod.get(scKey).push(r);
@@ -3467,11 +3499,7 @@ async function processBrandBilling(file, ptsFile = null) {
       const preSeasonTpl = tplBySeason[norm(seasonDet)] || globalTplItems;
       const preTplItem = preSeasonTpl ? preSeasonTpl[codNorm] : null;
       const preGrupo = (preTplItem && preTplItem.grupo) ? preTplItem.grupo : String(getRowVal(o, ['GRUPO', 'Product Type Description']) ?? '').trim();
-      const poolForSku = [
-        ...(rows10ABySeasonCod.get(`${norm(seasonDet)}|${codNorm}`) || []),
-        ...(rows10AByCod.get(codNorm) || []),
-        ...allBrandRows.filter(r => norm(r['Código']) === codNorm)
-      ];
+      const poolForSku = allBrandRowsByCod.get(codNorm) || [];
       const chosenTallaSap = resolveTallaSapFromGrid(gridVal, explicitSap, sizeLookup, poolForSku, {
         brand: S.brand,
         material: materialRaw,
@@ -3743,7 +3771,7 @@ async function processBrandBilling(file, ptsFile = null) {
           'CANAL INICIAL', 'CANAL UNIFICADO', 'NEW Material', 'Grid Value', 'Reques quantity',
           'Final Delivery QTY TOTAL', 'Gross Price', 'Net Without Round', 'Net value (without Round)',
           'Net price Round', 'Net value Round (DN)', 'EAN VERIFICADO', 'UPC', 'TALLA SAP',
-          'ID (NEW MATERIAL + "ESPACIO EN BLANCO" + TALLA SAP', 'MAR SAP NUEVO', 'EAN SAP',
+          'ID SAP', 'MAR SAP NUEVO', 'EAN SAP',
           'ACTIVIDAD', 'GRUPO', 'EMBARQUE', 'CATEGORÍA', 'GÉNERO', 'TEMPORADA', 'LINEA', 'DETALLE DE COMPRA'
         ];
         return {
@@ -5051,7 +5079,10 @@ function vBilling() {
   let headers, codIdx, embIdx, factIdx, ptIdx, qtyIdx, netValIdx, tempIdx, canalIdx, marSapIdx, eanSapIdx, unifiedRows, isFallbackMode;
 
   if (allBillRows.length > 0) {
-    refreshBillingHistoryEnrichment(S.brand);
+    const fixedRows = refreshBillingHistoryEnrichment(S.brand);
+    if (fixedRows > 0) {
+      saveMeta().catch(() => {});
+    }
     const refreshedRows = getAllBrandBillingRows(S.brand);
     isFallbackMode = false;
     const latestBatch = hist[0];
@@ -5237,22 +5268,28 @@ function vBilling() {
   $('btEmb').value = bt.embarque;
   $('btCod').value = bt.codigo;
 
+  // Pre-indexar texto de búsqueda por fila para filtrado instantáneo (<5ms)
+  for (let i = 0; i < unifiedRows.length; i++) {
+    const uRow = unifiedRows[i];
+    if (!uRow._qStr) {
+      uRow._qStr = (uRow.cells.join(' ') + ' ' + String(uRow.embarque || '')).toLowerCase();
+    }
+  }
+
   let currentFiltered = [];
   const drawBillingTable = () => {
     const q = bt.q.trim().toLowerCase();
+    const codFilter = bt.codigo.trim().toUpperCase();
     currentFiltered = unifiedRows.filter(r => {
       const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
       if (bt.embarque === '__FORWARDER__' && !isFw) return false;
       if (bt.embarque === '__ASSIGNED__' && isFw) return false;
       if (bt.embarque && !bt.embarque.startsWith('__') && r.embarque !== bt.embarque) return false;
-      if (bt.codigo && !String(r.cells[codIdx] || '').trim().toUpperCase().includes(bt.codigo.trim().toUpperCase())) return false;
+      if (codFilter && !String(r.cells[codIdx] || '').trim().toUpperCase().includes(codFilter)) return false;
       if (bt.factura && String(r.cells[factIdx] || '').trim() !== bt.factura) return false;
       if (bt.temporada && String(r.cells[tempIdx] || '').trim() !== bt.temporada) return false;
       if (bt.canal && String(r.cells[canalIdx] || '').trim() !== bt.canal) return false;
-      if (q) {
-        const hay = r.cells.join(' ').toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
+      if (q && !r._qStr.includes(q)) return false;
       return true;
     });
 
