@@ -28,6 +28,18 @@
   .tab.on{border-color:#243b6b;color:#243b6b}
   .r-p{background:#e8f5ec}.r-o{background:#fff7e0}.r-d{background:#f4e4e4;color:#6b5555}
   :focus-visible{outline:2px solid #243b6b;outline-offset:2px}
+  .dd-wrap{position:relative;display:inline-block}
+  .dd-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:255px;background:#fff;border:1px solid #cbd5e1;border-radius:.625rem;box-shadow:0 12px 28px -4px rgba(15,23,42,.14),0 4px 10px -2px rgba(15,23,42,.06);padding:.375rem;z-index:45;animation:ddIn .12s ease-out}
+  .dd-menu.left-align{right:auto;left:0}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+  .dd-item{width:100%;display:flex;align-items:flex-start;gap:.625rem;padding:.5rem .625rem;border-radius:.45rem;text-align:left;font-size:.8125rem;color:#1e293b;transition:background .1s}
+  .dd-item:hover{background:#f1f5f9}
+  .dd-item.danger{color:#b91c1c}
+  .dd-item.danger:hover{background:#fef2f2}
+  .dd-item.warn{color:#b45309}
+  .dd-item.warn:hover{background:#fffbeb}
+  .dd-sep{height:1px;background:#e2e8f0;margin:.35rem .25rem}
+  .dd-lbl{padding:.25rem .625rem;font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
 </style>
 </head>
 <body class="h-screen flex overflow-hidden">
@@ -228,7 +240,9 @@ const S = {
   logos: {},
   templates: {},
   sizePairs: [],
+  billingHistory: { Adidas: [], Reebok: [] },
   lastBillingPreview: null,
+  billTab: { q: '', embarque: '', factura: '', temporada: '', canal: '', forwarderOnly: false, page: 1, size: 50 },
   counts: {},
   cloud: {
     dirHandle: null,
@@ -393,6 +407,7 @@ async function saveMeta() {
   t.objectStore('meta').put(S.logos, 'logos');
   t.objectStore('meta').put(S.templates, 'templates');
   t.objectStore('meta').put(S.sizePairs || [], 'sizePairs');
+  t.objectStore('meta').put(S.billingHistory || { Adidas: [], Reebok: [] }, 'billingHistory');
   await txDone(t);
 }
 async function refreshCounts() {
@@ -537,7 +552,8 @@ async function pushCloudConfig() {
     updatedAt: new Date().toISOString(),
     seasons: S.seasons,
     logos: S.logos,
-    sizePairs: S.sizePairs
+    sizePairs: S.sizePairs,
+    billingHistory: S.billingHistory
   };
   await writeCloudFile(cfgFileName(), JSON.stringify(cfg));
 }
@@ -696,6 +712,9 @@ async function pullFromCloudFolder(onlyActiveSeason = false, silent = false) {
       if (cfgData.seasons) S.seasons = cfgData.seasons;
       if (cfgData.logos) S.logos = { ...S.logos, ...cfgData.logos };
       if (Array.isArray(cfgData.sizePairs)) S.sizePairs = cfgData.sizePairs;
+      if (cfgData.billingHistory && typeof cfgData.billingHistory === 'object') {
+        S.billingHistory = { Adidas: [], Reebok: [], ...cfgData.billingHistory };
+      }
       await saveMeta();
     } catch (e) {}
     // Listar archivos reales en la carpeta
@@ -1671,6 +1690,12 @@ async function revertOcsByKeys(selectedKeys) {
       pool10A.set(mergeKey, r);
     }
   }
+  const revertedInvoices = new Set(
+    [...selectedKeys].map(k => k.split('|||')[0]).filter(inv => inv && inv !== 'SIN FACTURA')
+  );
+  if (revertedInvoices.size) {
+    await removeRevertedInvoicesFromBillingHistory(S.brand, revertedInvoices);
+  }
   if (toUpdate.size) await dbPut([...toUpdate]);
   if (toDeleteIds.length) await dbDeleteIds(toDeleteIds);
   await reload();
@@ -2542,9 +2567,13 @@ async function assignPtsToForwarder(ptsFile) {
         if (ptVal && ptsMap.has(ptVal)) {
           pr.embarque = finalEmbOverride || ptsMap.get(ptVal);
           pr.isForwarder = false;
+          if (typeof S.lastBillingPreview.embIdx === 'number' && Array.isArray(pr.cells)) {
+            pr.cells[S.lastBillingPreview.embIdx] = pr.embarque;
+          }
         }
       });
     }
+    await syncBillingHistoryPts(S.brand, ptsMap, finalEmbOverride, finalFecha);
 
     busy('Actualizando embarque en base local…');
     await tick();
@@ -2566,6 +2595,126 @@ async function assignPtsToForwarder(ptsFile) {
 }
 
 /* ============ VISTA PREVIA COMPLETA (ESTILO PLANTILLA PRESENTACIÓN) PARA FACTURACIÓN ============ */
+
+function getBrandBillingHistory(brand = S.brand) {
+  if (!S.billingHistory) S.billingHistory = { Adidas: [], Reebok: [] };
+  if (!Array.isArray(S.billingHistory[brand])) S.billingHistory[brand] = [];
+  return S.billingHistory[brand];
+}
+
+function getAllBrandBillingRows(brand = S.brand) {
+  const hist = getBrandBillingHistory(brand);
+  const out = [];
+  for (const batch of hist) {
+    if (!batch || !Array.isArray(batch.rows)) continue;
+    for (const r of batch.rows) {
+      out.push({
+        ...r,
+        batchId: batch.id,
+        batchDate: batch.uploadedAt,
+        batchFile: batch.fileName || '',
+        headers: batch.headers
+      });
+    }
+  }
+  return out;
+}
+
+async function saveBillingSnapshotToHistory(previewObj, fileName = '') {
+  if (!previewObj || !Array.isArray(previewObj.rows) || !previewObj.rows.length) return;
+  const brand = previewObj.brand || S.brand;
+  const hist = getBrandBillingHistory(brand);
+  const batchInvoices = new Set(
+    previewObj.rows.map(r => String(r.cells[previewObj.factIdx] || '').trim()).filter(Boolean)
+  );
+  // Evitar duplicar exactamente las mismas facturas si se vuelve a procesar el mismo archivo
+  if (batchInvoices.size > 0) {
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const b = hist[i];
+      const bInvs = (b.invoices || []);
+      if (bInvs.length && bInvs.length === batchInvoices.size && bInvs.every(inv => batchInvoices.has(inv))) {
+        hist.splice(i, 1);
+      }
+    }
+  }
+  const batch = {
+    id: 'BILL_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    brand,
+    uploadedAt: new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }),
+    fileName,
+    invoices: [...batchInvoices],
+    headers: previewObj.headers,
+    codIdx: previewObj.codIdx,
+    embIdx: previewObj.embIdx,
+    factIdx: previewObj.factIdx,
+    ptIdx: previewObj.ptIdx,
+    rows: previewObj.rows.map(r => ({
+      isForwarder: Boolean(r.isForwarder),
+      embarque: r.embarque,
+      ptKey: r.ptKey,
+      cells: [...r.cells]
+    }))
+  };
+  hist.unshift(batch);
+  S.lastBillingPreview = previewObj;
+  await saveMeta();
+  if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+    pushCloudConfig().catch(() => {});
+  }
+}
+
+async function syncBillingHistoryPts(brand, ptsMap, finalEmbOverride, finalFecha = '') {
+  const hist = getBrandBillingHistory(brand);
+  let updated = false;
+  for (const batch of hist) {
+    if (!Array.isArray(batch.rows)) continue;
+    for (const r of batch.rows) {
+      const ptVal = normalizePtId(r.ptKey);
+      if (ptVal && ptsMap.has(ptVal)) {
+        const newEmb = finalEmbOverride || ptsMap.get(ptVal);
+        r.embarque = newEmb;
+        r.isForwarder = false;
+        if (typeof batch.embIdx === 'number' && Array.isArray(r.cells)) {
+          r.cells[batch.embIdx] = newEmb;
+        }
+        updated = true;
+      }
+    }
+  }
+  if (updated) {
+    await saveMeta();
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      pushCloudConfig().catch(() => {});
+    }
+  }
+}
+
+async function removeRevertedInvoicesFromBillingHistory(brand, revertedInvoicesSet) {
+  if (!revertedInvoicesSet || !revertedInvoicesSet.size) return;
+  const hist = getBrandBillingHistory(brand);
+  let changed = false;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const batch = hist[i];
+    if (!Array.isArray(batch.rows)) continue;
+    const beforeLen = batch.rows.length;
+    batch.rows = batch.rows.filter(r => {
+      const inv = String((r.cells && r.cells[batch.factIdx]) || '').trim();
+      return !inv || !revertedInvoicesSet.has(inv);
+    });
+    if (batch.rows.length !== beforeLen) {
+      changed = true;
+      batch.invoices = [...new Set(batch.rows.map(r => String((r.cells && r.cells[batch.factIdx]) || '').trim()).filter(Boolean))];
+      if (!batch.rows.length) hist.splice(i, 1);
+    }
+  }
+  if (changed) {
+    await saveMeta();
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      pushCloudConfig().catch(() => {});
+    }
+  }
+}
+
 function exportBillingPreviewExcel(previewObj) {
   if (!previewObj || !previewObj.rows || !previewObj.rows.length) {
     return modal('Sin datos', 'No hay detalle de facturación transformado para exportar.');
@@ -3235,6 +3384,7 @@ async function processBrandBilling(file, ptsFile = null) {
       if (!l.isForwarder && userEmb) l.embarque = userEmb;
     });
     S.lastBillingPreview = buildPreviewSnapshot();
+    await saveBillingSnapshotToHistory(S.lastBillingPreview, file ? file.name : '');
 
     appliedP24Rows.forEach(item => {
       if (!item.isForwarder) {
@@ -3504,6 +3654,19 @@ async function newSeason(b) {
   S.seasons[b].push(n);
   await pick(b, n);
 }
+function toggleHeaderMenu(menuId, ev) {
+  if (ev) ev.stopPropagation();
+  const target = $(menuId);
+  const wasHidden = target ? target.classList.contains('hidden') : true;
+  document.querySelectorAll('.dd-menu').forEach(el => el.classList.add('hidden'));
+  if (target && wasHidden) target.classList.remove('hidden');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.dd-wrap')) {
+    document.querySelectorAll('.dd-menu').forEach(el => el.classList.add('hidden'));
+  }
+});
+
 function renderMain() {
   const m = $('main');
   if (!S.season) {
@@ -3517,42 +3680,177 @@ function renderMain() {
   const alertBadge = priceAlertsCount > 0
     ? `<span class="ml-1.5 px-1.5 py-0.2 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-300">${fn(priceAlertsCount)}</span>`
     : '';
+  const billRowsCount = getAllBrandBillingRows(S.brand).length;
+  const billBadge = billRowsCount > 0
+    ? `<span class="ml-1.5 px-1.5 py-0.2 text-[11px] font-bold rounded-full bg-sky-100 text-sky-800 border border-sky-300">${fn(billRowsCount)}</span>`
+    : '';
+  const tplCount = Object.keys(getTplData(sbKey()).items).length;
+  const sizeCount = S.sizePairs.length;
+  const mastersTotal = (tplCount > 0 ? 1 : 0) + (sizeCount > 0 ? 1 : 0);
 
   const tabs = [
     ['dash', 'Resumen', 'layout-dashboard', ''],
-    ['corp', 'Ingresos por Mes (Corporativo)', 'calendar-range', ''],
+    ['corp', 'Ingresos por Mes', 'calendar-range', ''],
     ['mx', 'Matriz de seguimiento', 'table', ''],
-    ['prices', 'Alertas de Precio (Reetiquetar)', 'tag', alertBadge],
+    ['billing', 'Detalle Facturación', 'receipt', billBadge],
+    ['prices', 'Alertas de Precio', 'tag', alertBadge],
     ['drop', 'Reporte de DROPS', 'ban', '']
   ];
   m.innerHTML = `
-    <header class="bg-white border-b px-6 pt-4">
+    <header class="bg-white border-b px-6 pt-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <div class="flex flex-wrap items-center justify-between gap-3 pb-3">
-        <div>
-          <h1 class="text-xl font-semibold">${S.brand} ${esc(S.season)}</h1>
-          <p class="text-xs text-slate-500">${fn(S.rows.length)} registros en total · Guardado en este navegador</p>
+        <div class="flex items-center gap-3 min-w-0">
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-xl font-bold tracking-tight text-slate-900">${S.brand} ${esc(S.season)}</h1>
+              <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">${fn(S.rows.length)} registros</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">Tracking de compras, facturación y embarques · Guardado local${S.cloud.connected ? ' + OneDrive' : ''}</p>
+          </div>
         </div>
+
+        <!-- Barra de herramientas limpia y agrupada por flujo de trabajo -->
         <div class="flex flex-wrap items-center gap-2">
-          <button class="btn !bg-violet-50 !text-violet-900 !border-violet-300 hover:!bg-violet-100" onclick="promptPresentationTemplate()" title="Cargar o actualizar el maestro de Plantilla de Presentación de Producto"><i data-lucide="book-open-check" class="w-4 h-4"></i>Plantilla Presentación${Object.keys(getTplData(sbKey()).items).length ? ` <span class="ml-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-violet-200 text-violet-900">${fn(Object.keys(getTplData(sbKey()).items).length)} SKUs</span>` : ''}</button>
-          <button class="btn !bg-teal-50 !text-teal-900 !border-teal-300 hover:!bg-teal-100" onclick="promptSizeMapManager()" title="Cargar, anexar o consultar equivalencias Talla Marca → Talla SAP (Compartido Adidas y Reebok)"><i data-lucide="ruler" class="w-4 h-4"></i>Tallas SAP${S.sizePairs.length ? ` <span class="ml-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-teal-200 text-teal-900">${fn(S.sizePairs.length)}</span>` : ''}</button>
-          <button class="btn" onclick="$('fBuyInit').click()"><i data-lucide="file-up" class="w-4 h-4"></i>Cargar compra inicial</button>
-          <button class="btn" onclick="$('fBuyExtra').click()"><i data-lucide="plus-circle" class="w-4 h-4"></i>Cargar compra extra</button>
-          <button class="btn btn-p" onclick="promptOcType()"><i data-lucide="git-merge" class="w-4 h-4"></i>Cargar OC trabajada</button>
-          <button class="btn btn-warn" onclick="promptDeleteOcs()"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Revertir / Borrar OC</button>
-          <button class="btn !bg-emerald-700 !text-white !border-emerald-700" onclick="promptExcelExport()"><i data-lucide="download" class="w-4 h-4"></i>Descargar Excel</button>
-          <button class="btn !bg-sky-700 !text-white !border-sky-700 hover:!bg-sky-800" onclick="promptCloudSync()" title="Sincronizar base completa con OneDrive / SharePoint"><i data-lucide="cloud" class="w-4 h-4"></i>OneDrive / Nube</button>
-          <button class="btn !bg-indigo-700 !text-white !border-indigo-700" onclick="exportJsonBackup()"><i data-lucide="file-json" class="w-4 h-4"></i>Exportar JSON</button>
-          <button class="btn !bg-indigo-50 !text-indigo-800 !border-indigo-300" onclick="$('fJsonImport').click()"><i data-lucide="upload" class="w-4 h-4"></i>Importar JSON</button>
-          <button class="btn btn-danger" onclick="clearSeasonData()"><i data-lucide="trash-2" class="w-4 h-4"></i>Borrar compra total</button>
+          <!-- 1. Acción Principal: Cargar OC / Facturación -->
+          <button type="button" class="btn btn-p shadow-xs" onclick="promptOcType()">
+            <i data-lucide="git-merge" class="w-4 h-4"></i>
+            <span>Cargar OC / Facturación</span>
+          </button>
+
+          <!-- 2. Menú: Compras (Inicial / Extra) -->
+          <div class="dd-wrap">
+            <button type="button" class="btn" onclick="toggleHeaderMenu('ddCompras', event)">
+              <i data-lucide="shopping-bag" class="w-4 h-4 text-slate-600"></i>
+              <span>Compras</span>
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
+            </button>
+            <div id="ddCompras" class="dd-menu hidden">
+              <div class="dd-lbl">Gestión de Compras (${esc(S.season)})</div>
+              <button type="button" class="dd-item" onclick="$('ddCompras').classList.add('hidden'); $('fBuyInit').click()">
+                <i data-lucide="file-up" class="w-4 h-4 text-indigo-700 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold text-slate-900">Cargar compra inicial</div>
+                  <div class="text-[11px] text-slate-500">Carga base COMPRA CANAL en 10A</div>
+                </div>
+              </button>
+              <button type="button" class="dd-item" onclick="$('ddCompras').classList.add('hidden'); $('fBuyExtra').click()">
+                <i data-lucide="plus-circle" class="w-4 h-4 text-teal-700 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold text-slate-900">Cargar compra extra</div>
+                  <div class="text-[11px] text-slate-500">Anexa pedidos adicionales sin borrar</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. Menú: Catálogos Maestros (Plantilla + Tallas SAP) -->
+          <div class="dd-wrap">
+            <button type="button" class="btn !bg-violet-50/70 !text-violet-950 !border-violet-200 hover:!bg-violet-100/70" onclick="toggleHeaderMenu('ddMaestros', event)">
+              <i data-lucide="database" class="w-4 h-4 text-violet-700"></i>
+              <span>Maestros</span>
+              ${mastersTotal > 0 ? `<span class="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-violet-200 text-violet-900">${mastersTotal}/2</span>` : ''}
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-violet-500"></i>
+            </button>
+            <div id="ddMaestros" class="dd-menu hidden !min-w-[285px]">
+              <div class="dd-lbl">Catálogos de Homologación</div>
+              <button type="button" class="dd-item" onclick="$('ddMaestros').classList.add('hidden'); promptPresentationTemplate()">
+                <i data-lucide="book-open-check" class="w-4 h-4 text-violet-700 shrink-0 mt-0.5"></i>
+                <div class="flex-1">
+                  <div class="font-semibold text-slate-900 flex items-center justify-between">
+                    <span>Plantilla Presentación</span>
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-900">${fn(tplCount)} SKUs</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500">Precios iniciales, FOB y jerarquía de producto</div>
+                </div>
+              </button>
+              <button type="button" class="dd-item" onclick="$('ddMaestros').classList.add('hidden'); promptSizeMapManager()">
+                <i data-lucide="ruler" class="w-4 h-4 text-teal-700 shrink-0 mt-0.5"></i>
+                <div class="flex-1">
+                  <div class="font-semibold text-slate-900 flex items-center justify-between">
+                    <span>Maestro Tallas SAP</span>
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-900">${fn(sizeCount)} tallas</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500">Conversión Talla Marca → SAP (Adidas & Reebok)</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- 4. Exportar Excel (Acción directa clave) -->
+          <button type="button" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800" onclick="promptExcelExport()">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>Exportar Excel</span>
+          </button>
+
+          <!-- 5. Menú: Nube & Respaldos (OneDrive + JSON) -->
+          <div class="dd-wrap">
+            <button type="button" class="btn !bg-sky-50/80 !text-sky-950 !border-sky-200 hover:!bg-sky-100/80" onclick="toggleHeaderMenu('ddNube', event)">
+              <i data-lucide="cloud" class="w-4 h-4 text-sky-700"></i>
+              <span>Nube y Respaldos</span>
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-sky-500"></i>
+            </button>
+            <div id="ddNube" class="dd-menu hidden">
+              <div class="dd-lbl">Sincronización y Archivos</div>
+              <button type="button" class="dd-item" onclick="$('ddNube').classList.add('hidden'); promptCloudSync()">
+                <i data-lucide="folder-sync" class="w-4 h-4 text-sky-700 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold text-slate-900">Carpeta OneDrive / SharePoint</div>
+                  <div class="text-[11px] text-slate-500">${S.cloud.connected ? 'Conectada: ' + esc(S.cloud.dirName) : 'Vincular carpeta compartida'}</div>
+                </div>
+              </button>
+              <div class="dd-sep"></div>
+              <button type="button" class="dd-item" onclick="$('ddNube').classList.add('hidden'); exportJsonBackup()">
+                <i data-lucide="file-json" class="w-4 h-4 text-indigo-700 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold text-slate-900">Exportar respaldo JSON</div>
+                  <div class="text-[11px] text-slate-500">Descargar copia local de ${S.brand} ${esc(S.season)}</div>
+                </div>
+              </button>
+              <button type="button" class="dd-item" onclick="$('ddNube').classList.add('hidden'); $('fJsonImport').click()">
+                <i data-lucide="upload" class="w-4 h-4 text-indigo-600 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold text-slate-900">Importar respaldo JSON</div>
+                  <div class="text-[11px] text-slate-500">Restaurar temporada desde archivo .json</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- 6. Menú: Administración / Mantenimiento (Revertir OCs / Borrar temporada) -->
+          <div class="dd-wrap">
+            <button type="button" class="btn !px-2.5 text-slate-600 hover:text-slate-900" onclick="toggleHeaderMenu('ddAdmin', event)" title="Opciones de reversión y limpieza">
+              <i data-lucide="more-vertical" class="w-4 h-4"></i>
+            </button>
+            <div id="ddAdmin" class="dd-menu hidden">
+              <div class="dd-lbl">Mantenimiento y Reversión</div>
+              <button type="button" class="dd-item warn" onclick="$('ddAdmin').classList.add('hidden'); promptDeleteOcs()">
+                <i data-lucide="rotate-ccw" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold">Revertir / Borrar OCs</div>
+                  <div class="text-[11px] text-slate-500">Devuelve facturas seleccionadas a 10A</div>
+                </div>
+              </button>
+              <div class="dd-sep"></div>
+              <button type="button" class="dd-item danger" onclick="$('ddAdmin').classList.add('hidden'); clearSeasonData()">
+                <i data-lucide="trash-2" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold">Borrar compra total</div>
+                  <div class="text-[11px] text-red-600/80">Vacía todos los registros de ${esc(S.season)}</div>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+
+      <!-- Pestañas de Navegación -->
       <div class="flex gap-1 overflow-x-auto">
-        ${tabs.map(t => `<button class="tab whitespace-nowrap ${S.tab === t[0] ? 'on' : ''}" onclick="S.tab='${t[0]}';S.page=1;render()"><i data-lucide="${t[2]}" class="inline w-4 h-4 mr-1 -mt-0.5"></i>${t[1]}${t[3]}</button>`).join('')}
+        ${tabs.map(t => `<button class="tab whitespace-nowrap ${S.tab === t[0] ? 'on' : ''}" onclick="S.tab='${t[0]}';S.page=1;render()"><i data-lucide="${t[2]}" class="inline w-4 h-4 mr-1.5 -mt-0.5"></i>${t[1]}${t[3]}</button>`).join('')}
       </div>
     </header>
     <section class="flex-1 min-h-0 overflow-y-auto p-6" id="view"></section>
   `;
-  ({ dash: vDash, corp: vCorp, mx: vMx, prices: vPrices, drop: vDrop })[S.tab]();
+  ({ dash: vDash, corp: vCorp, mx: vMx, billing: vBilling, prices: vPrices, drop: vDrop })[S.tab]();
 }
 function kpi(l, v, sub, c, moneyVal) {
   const moneyHtml = moneyVal !== undefined
@@ -3651,6 +3949,7 @@ function vDash() {
       </div>
     </div>
   `;
+  icons();
 }
 
 /* ============ VISTA CORPORATIVA: INGRESOS DE EMBARQUES POR MES Y SALDO FALTANTE ============ */
@@ -4205,6 +4504,271 @@ function pager(n) {
     </div>
   `;
 }
+
+/* ============ VISTA DEDICADA: DETALLE DE FACTURACIÓN CONSOLIDADO (CON FILTRO FORWARDER / EMBARQUE) ============ */
+function exportConsolidatedBillingExcel(filteredRows, headers) {
+  if (!filteredRows || !filteredRows.length) {
+    return modal('Sin datos', 'No hay registros de facturación para exportar con los filtros actuales.');
+  }
+  const aoa = [
+    headers,
+    ...filteredRows.map(r => r.cells)
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), `FACTURACION_${S.brand.toUpperCase()}`);
+  XLSX.writeFile(wb, `DETALLE_FACTURACION_${S.brand}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+function vBilling() {
+  const view = $('view');
+  const isReebok = String(S.brand).toUpperCase().includes('REEBOK');
+  const hist = getBrandBillingHistory(S.brand);
+  const allBillRows = getAllBrandBillingRows(S.brand);
+
+  // Fallback si existen registros P24 en la base pero aún no se ha cargado un detalle en historial
+  const p24SeasonRows = S.rows.filter(r => st(r) === 'p');
+
+  if (!allBillRows.length && !p24SeasonRows.length) {
+    view.innerHTML = `
+      <div class="bg-white border rounded-xl p-10 text-center max-w-lg mx-auto mt-6 shadow-2xs">
+        <div class="w-12 h-12 rounded-full bg-sky-50 text-sky-700 flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="receipt" class="w-6 h-6"></i>
+        </div>
+        <h2 class="text-base font-bold text-slate-900">Aún no hay Detalle de Facturación cargado en ${esc(S.brand)}</h2>
+        <p class="text-xs text-slate-500 mt-1.5 leading-relaxed">
+          Aquí podrás consultar todas las facturas procesadas, ver qué PTs quedaron en <b>FORWARDER</b> vs. embarcados, desagregar canales iniciales y exportar el Excel maestro en cualquier momento.
+        </p>
+        <button type="button" class="btn btn-p mt-4" onclick="openBillingWithPtsModal()">
+          <i data-lucide="file-up" class="w-4 h-4"></i> Cargar Detalle de Facturación ${esc(S.brand)}
+        </button>
+      </div>
+    `;
+    icons();
+    return;
+  }
+
+  // Si hay historial guardado de Detalle de Facturación, mostrar la tabla maestra completa
+  if (allBillRows.length > 0) {
+    const latestBatch = hist[0];
+    const headers = latestBatch.headers;
+    const codIdx = latestBatch.codIdx;
+    const embIdx = latestBatch.embIdx;
+    const factIdx = latestBatch.factIdx;
+    const ptIdx = latestBatch.ptIdx;
+    const qtyIdx = isReebok ? 12 : 11;
+    const netValIdx = isReebok ? 17 : 13;
+    const tempIdx = isReebok ? 29 : 25;
+    const canalIdx = isReebok ? 7 : 6;
+
+    const totalUnits = allBillRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+    const totalFob = allBillRows.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
+    const fwRows = allBillRows.filter(r => r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER');
+    const fwUnits = fwRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+    const embUnits = totalUnits - fwUnits;
+    const uniqueInvoices = new Set(allBillRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean)).size;
+
+    const embarquesList = [...new Set(allBillRows.map(r => String(r.embarque || '').trim()).filter(Boolean))].sort();
+    const facturasList = [...new Set(allBillRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean))].sort();
+    const tempsList = [...new Set(allBillRows.map(r => String(r.cells[tempIdx] || '').trim()).filter(Boolean))].sort();
+    const canalesList = [...new Set(allBillRows.map(r => String(r.cells[canalIdx] || '').trim()).filter(Boolean))].sort();
+
+    const bt = S.billTab;
+    view.innerHTML = `
+      <div class="grid gap-3 grid-cols-2 xl:grid-cols-4 mb-4">
+        ${kpi('Total Facturado (' + S.brand + ')', fn(totalUnits), `${fn(uniqueInvoices)} factura(s) · ${fn(allBillRows.length)} líneas`, 'border-l-4 border-l-sky-600', totalFob)}
+        ${kpi('Con Embarque Asignado', fn(embUnits), 'PTs cruzados con COMEX', 'border-l-4 border-l-emerald-600')}
+        ${kpi('Pendiente en FORWARDER', fn(fwUnits), `${fn(fwRows.length)} líneas esperando embarque`, 'border-l-4 border-l-amber-500')}
+        <div class="bg-white rounded-lg border p-4 flex flex-col justify-between">
+          <div class="text-xs text-slate-500">Acciones de Facturación</div>
+          <div class="flex flex-col gap-1.5 mt-2">
+            <button type="button" onclick="openBillingWithPtsModal()" class="btn btn-p justify-center !text-xs !py-1.5">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> Cargar Nueva Facturación
+            </button>
+            <button type="button" onclick="$('fPtsAssign').dataset.mode=''; $('fPtsAssign').click()" class="btn !bg-teal-50 !text-teal-900 !border-teal-300 hover:!bg-teal-100 justify-center !text-xs !py-1.5">
+              <i data-lucide="ship" class="w-3.5 h-3.5"></i> Asignar Embarque (PTs)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white border rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2">
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5"></i>
+          <input type="text" id="btSearch" class="border rounded pl-8 pr-3 py-1.5 text-sm w-64 bg-white" placeholder="Buscar Código, Factura, PT, PO..." value="${esc(bt.q)}">
+        </div>
+        <select id="btEmb" class="border rounded px-2.5 py-1.5 text-sm bg-white font-medium">
+          <option value="">Todos los embarques (${embarquesList.length})</option>
+          <option value="__FORWARDER__">⚠️ Solo FORWARDER (${fn(fwRows.length)})</option>
+          <option value="__ASSIGNED__">✓ Solo con Embarque asignado</option>
+          ${embarquesList.map(e => `<option value="${esc(e)}" ${bt.embarque === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}
+        </select>
+        <select id="btFact" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+          <option value="">Todas las facturas (${facturasList.length})</option>
+          ${facturasList.map(f => `<option value="${esc(f)}" ${bt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
+        </select>
+        <select id="btTemp" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+          <option value="">Todas las temporadas</option>
+          ${tempsList.map(t => `<option value="${esc(t)}" ${bt.temporada === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select>
+        <select id="btCanal" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+          <option value="">Todos los canales iniciales</option>
+          ${canalesList.map(c => `<option value="${esc(c)}" ${bt.canal === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+        <button type="button" id="btExportBtn" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 ml-auto !text-xs">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Exportar Vista a Excel
+        </button>
+      </div>
+
+      <div id="btTableWrap"></div>
+    `;
+
+    $('btEmb').value = bt.embarque;
+
+    let currentFiltered = [];
+    const drawBillingTable = () => {
+      const q = bt.q.trim().toLowerCase();
+      currentFiltered = allBillRows.filter(r => {
+        const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
+        if (bt.embarque === '__FORWARDER__' && !isFw) return false;
+        if (bt.embarque === '__ASSIGNED__' && isFw) return false;
+        if (bt.embarque && !bt.embarque.startsWith('__') && r.embarque !== bt.embarque) return false;
+        if (bt.factura && String(r.cells[factIdx] || '').trim() !== bt.factura) return false;
+        if (bt.temporada && String(r.cells[tempIdx] || '').trim() !== bt.temporada) return false;
+        if (bt.canal && String(r.cells[canalIdx] || '').trim() !== bt.canal) return false;
+        if (q) {
+          const hay = r.cells.join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      const filtUnits = currentFiltered.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+      const filtFob = currentFiltered.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
+      const totalPages = Math.max(1, Math.ceil(currentFiltered.length / bt.size));
+      if (bt.page > totalPages) bt.page = totalPages;
+      const slice = currentFiltered.slice((bt.page - 1) * bt.size, bt.page * bt.size);
+
+      $('btTableWrap').innerHTML = `
+        <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 380px)">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="text-left text-slate-700 bg-slate-100 border-b">
+                ${headers.map((h, idx) => `<th class="px-2.5 py-2 whitespace-nowrap border-r border-slate-200/70 font-semibold ${idx === codIdx ? 'sticky left-0 z-10 bg-slate-100 shadow-[1px_0_0_#cbd5e1]' : ''}">${esc(h)}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${slice.map(r => {
+                const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
+                const rowBg = isFw ? 'bg-amber-50/50 hover:bg-amber-100/60' : 'hover:bg-sky-50/40';
+                return `<tr class="border-t ${rowBg}">
+                  ${headers.map((_, idx) => {
+                    const val = idx === embIdx ? r.embarque : r.cells[idx];
+                    const isNum = typeof val === 'number';
+                    const disp = isNum ? (Number.isInteger(val) ? fn(val) : val.toFixed(2)) : esc(val ?? '');
+                    const cellHtml = (idx === embIdx)
+                      ? (isFw
+                          ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px]">FORWARDER</span>`
+                          : `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[11px]">${disp}</span>`)
+                      : disp;
+                    return `<td class="px-2.5 py-1.5 whitespace-nowrap border-r border-slate-100 ${isNum ? 'num' : ''} ${idx === codIdx ? 'sticky left-0 bg-white font-bold text-slate-900 shadow-[1px_0_0_#e2e8f0]' : ''}">${cellHtml}</td>`;
+                  }).join('')}
+                </tr>`;
+              }).join('') || `<tr><td colspan="${headers.length}" class="p-8 text-center text-slate-400">No se encontraron líneas con los filtros seleccionados.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs mt-3 bg-white border rounded-lg px-4 py-2.5">
+          <div class="flex items-center gap-4 text-slate-700">
+            <span>Mostrando <b>${fn(currentFiltered.length)}</b> líneas</span>
+            <span>Unidades filtradas: <b class="text-slate-900 text-sm">${fn(filtUnits)}</b></span>
+            <span>FOB Neto filtrado: <b class="text-indigo-950 text-sm">${fmoney(filtFob)}</b></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <select id="btPageSize" class="border rounded px-2 py-1 bg-white">
+              ${[50, 100, 200].map(sz => `<option value="${sz}" ${bt.size === sz ? 'selected' : ''}>${sz}</option>`).join('')}
+            </select>
+            <button type="button" id="btPrev" class="btn !py-1 !px-2.5 !text-xs" ${bt.page <= 1 ? 'disabled' : ''}>Anterior</button>
+            <span class="font-medium text-slate-700">${bt.page} / ${totalPages}</span>
+            <button type="button" id="btNext" class="btn !py-1 !px-2.5 !text-xs" ${bt.page >= totalPages ? 'disabled' : ''}>Siguiente</button>
+          </div>
+        </div>
+      `;
+
+      $('btPageSize').onchange = e => { bt.size = Number(e.target.value); bt.page = 1; drawBillingTable(); };
+      $('btPrev').onclick = () => { if (bt.page > 1) { bt.page--; drawBillingTable(); } };
+      $('btNext').onclick = () => { if (bt.page < totalPages) { bt.page++; drawBillingTable(); } };
+    };
+
+    let timer;
+    const onFilterChange = () => {
+      bt.q = $('btSearch').value;
+      bt.embarque = $('btEmb').value;
+      bt.factura = $('btFact').value;
+      bt.temporada = $('btTemp').value;
+      bt.canal = $('btCanal').value;
+      bt.page = 1;
+      clearTimeout(timer);
+      timer = setTimeout(drawBillingTable, 150);
+    };
+
+    ['btSearch', 'btEmb', 'btFact', 'btTemp', 'btCanal'].forEach(id => {
+      $(id).oninput = onFilterChange;
+    });
+    $('btExportBtn').onclick = () => exportConsolidatedBillingExcel(currentFiltered, headers);
+
+    icons();
+    drawBillingTable();
+    return;
+  }
+
+  // Fallback: si la temporada actual tiene P24 cargados previamente pero aún no hay snapshot en historial
+  const fwP24 = p24SeasonRows.filter(r => String(r['EMBARQUE'] || '').trim().toUpperCase() === 'FORWARDER');
+  const totalP24Units = p24SeasonRows.reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
+  const fwP24Units = fwP24.reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
+  view.innerHTML = `
+    <div class="p-4 rounded-lg bg-sky-50 border border-sky-200 text-sky-950 text-xs mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <b>Vista de Facturación desde Matriz (${S.brand} ${esc(S.season)}):</b> Se muestran los <b>${fn(p24SeasonRows.length)} registros facturados (P24)</b> actuales. Cuando proceses tu próximo archivo de <i>Detalle de Facturación</i>, aquí aparecerán automáticamente todas sus columnas completas de SAP.
+      </div>
+      <button type="button" class="btn btn-p !text-xs" onclick="openBillingWithPtsModal()">Cargar Detalle de Facturación</button>
+    </div>
+    <div class="grid gap-3 grid-cols-2 xl:grid-cols-3 mb-4">
+      ${kpi('Facturado en ' + S.season, fn(totalP24Units), `${fn(p24SeasonRows.length)} líneas en P24`, 'border-l-4 border-l-emerald-600')}
+      ${kpi('En FORWARDER', fn(fwP24Units), `${fn(fwP24.length)} líneas pendientes de embarque`, 'border-l-4 border-l-amber-500')}
+      ${kpi('Embarcados', fn(totalP24Units - fwP24Units), 'Con embarque asignado', 'border-l-4 border-l-sky-600')}
+    </div>
+    <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 340px)">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-slate-600 bg-slate-100 border-b">
+            ${['Factura', 'F. Factura', 'Delivery / PT', 'Embarque', 'Código', 'Descripción', 'Talla', 'Canal Inicial', 'Canal Final', 'Cant.', 'FOB', 'Valor Neto'].map((h, i) => `<th class="px-3 py-2 whitespace-nowrap ${i >= 9 ? 'text-right' : ''}">${h}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${p24SeasonRows.slice(0, 200).map(r => {
+            const isFw = String(r['EMBARQUE'] || '').trim().toUpperCase() === 'FORWARDER';
+            return `<tr class="border-t ${isFw ? 'bg-amber-50/50' : ''}">
+              <td class="px-3 py-1.5 font-semibold">${esc(r['Factura'] || '')}</td>
+              <td class="px-3 py-1.5">${esc(r['Fecha de factura'] || '')}</td>
+              <td class="px-3 py-1.5 font-mono">${esc(r['Delivery'] || '')}</td>
+              <td class="px-3 py-1.5">${isFw ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold">FORWARDER</span>' : esc(r['EMBARQUE'] || '')}</td>
+              <td class="px-3 py-1.5 font-bold">${esc(r['Código'] || '')}</td>
+              <td class="px-3 py-1.5 max-w-[14rem] truncate">${esc(r['Descripción'] || '')}</td>
+              <td class="px-3 py-1.5">${esc(r['Talla'] || '')}</td>
+              <td class="px-3 py-1.5">${esc(r['Canal Inicial'] || '')}</td>
+              <td class="px-3 py-1.5 font-semibold text-indigo-900">${esc(r['Canal Final'] || '')}</td>
+              <td class="px-3 py-1.5 num font-bold">${fn(r['Cantidad'])}</td>
+              <td class="px-3 py-1.5 num">${Number(r['FOB'] || 0).toFixed(2)}</td>
+              <td class="px-3 py-1.5 num font-semibold">${fmoney(r['Valor Neto'] || calcValorNeto(r))}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  icons();
+}
+
 function vPrices() {
   const changed = S.rows.filter(hasPriceChange);
   const totalUnits = changed.reduce((a, r) => a + (Number(r['Cantidad']) || 0), 0);
@@ -4348,6 +4912,10 @@ $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value
     if (savedTemplates) S.templates = savedTemplates;
     const savedSizePairs = await rq(db.transaction('meta').objectStore('meta').get('sizePairs'));
     if (Array.isArray(savedSizePairs)) S.sizePairs = savedSizePairs;
+    const savedBillingHist = await rq(db.transaction('meta').objectStore('meta').get('billingHistory'));
+    if (savedBillingHist && typeof savedBillingHist === 'object') {
+      S.billingHistory = { Adidas: [], Reebok: [], ...savedBillingHist };
+    }
     const act = await rq(db.transaction('meta').objectStore('meta').get('active'));
     if (act && act.brand && act.season) {
       S.brand = act.brand;
