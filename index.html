@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sistema de Tracking de Compra - Medeport</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<title>Sistema de Tracking - KSM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script>
   const _origWarn = console.warn;
   console.warn = function(...args) {
@@ -16,44 +18,92 @@
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.1/dist/umd/lucide.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-  body{font-family:'IBM Plex Sans',system-ui,sans-serif;background:#eef0ee;color:#18212b}
+  :root{
+    --bg-canvas:#f4f5f7;
+    --ink-primary:#0f172a;
+    --ink-secondary:#475569;
+    --brand-navy:#0f1e36;
+    --brand-accent:#d92d20;
+    --border-hairline:#e2e6ec;
+  }
+  body{font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;background:var(--bg-canvas);color:var(--ink-primary);-webkit-font-smoothing:antialiased;letter-spacing:-0.01em}
+  .font-mono{font-family:'JetBrains Mono',ui-monospace,monospace}
   .num{font-variant-numeric:tabular-nums;text-align:right}
-  thead th{position:sticky;top:0;background:#fff;z-index:2;box-shadow:0 1px 0 #d5d9d6}
+  /* Scrollbars refinados */
+  ::-webkit-scrollbar{width:7px;height:7px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px}
+  ::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+  /* Tablas corporativas limpias */
+  thead th{position:sticky;top:0;background:#f8fafc;color:#475569;font-weight:700;text-transform:uppercase;font-size:.69rem;letter-spacing:.04em;z-index:2;box-shadow:0 1px 0 #e2e8f0}
   tfoot td{position:sticky;bottom:0;background:#f8fafc;z-index:2;box-shadow:0 -1px 0 #cbd5e1}
-  .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem .8rem;border-radius:.375rem;font-size:.85rem;font-weight:500;border:1px solid #c9cfcb;background:#fff;cursor:pointer}
-  .btn:hover{background:#f3f5f3}.btn-p{background:#243b6b;color:#fff;border-color:#243b6b}.btn-p:hover{background:#1c2f57}
-  .btn-warn{background:#fff;color:#b45309;border-color:#fcd34d}.btn-warn:hover{background:#fffbeb}
-  .btn-danger{background:#fff;color:#b91c1c;border-color:#fca5a5}.btn-danger:hover{background:#fef2f2}
-  .tab{padding:.6rem 1rem;font-size:.9rem;font-weight:500;border-bottom:2px solid transparent;color:#5b6670}
-  .tab.on{border-color:#243b6b;color:#243b6b}
-  .r-p{background:#e8f5ec}.r-o{background:#fff7e0}.r-d{background:#f4e4e4;color:#6b5555}
-  :focus-visible{outline:2px solid #243b6b;outline-offset:2px}
+  tbody tr{transition:background-color .12s ease}
+  /* Sistema de botones táctiles con micro-elevación */
+  .btn{display:inline-flex;align-items:center;gap:.45rem;padding:.48rem .88rem;border-radius:.55rem;font-size:.825rem;font-weight:600;border:1px solid #d5dbe3;background:#fff;color:#1e293b;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:all .15s cubic-bezier(.4,0,.2,1)}
+  .btn:hover{background:#f8fafc;border-color:#bac4d1;transform:translateY(-0.5px);box-shadow:0 3px 8px rgba(15,23,42,.06)}
+  .btn:active{transform:translateY(0)}
+  .btn:disabled{opacity:.45;pointer-events:none;transform:none}
+  .btn-p{background:#0f1e36;color:#fff;border-color:#0f1e36;box-shadow:0 2px 6px rgba(15,30,54,.22)}
+  .btn-p:hover{background:#192e52;border-color:#192e52;box-shadow:0 4px 12px rgba(15,30,54,.28)}
+  .btn-warn{background:#fffbeb;color:#b45309;border-color:#fde68a}
+  .btn-warn:hover{background:#fef3c7}
+  .btn-danger{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
+  .btn-danger:hover{background:#fee2e2}
+  /* Navegación por pestañas tipo workspace profesional */
+  .nav-strip{display:flex;align-items:center;gap:.25rem;padding-bottom:.15rem}
+  .tab{position:relative;display:inline-flex;align-items:center;gap:.45rem;padding:.62rem .92rem;font-size:.835rem;font-weight:600;border-bottom:2.5px solid transparent;color:#64748b;border-radius:.45rem .45rem 0 0;transition:all .15s ease}
+  .tab:hover{color:#0f172a;background:#f8fafc}
+  .tab.on{border-color:#d92d20;color:#0f172a;background:linear-gradient(to top, rgba(217,45,32,.05), transparent)}
+  /* Estados de fila sutiles con indicador lateral de color (sin bloques chillones) */
+  .r-p{background:#ffffff}.r-p:hover{background:#f2fbf6}.r-p td:first-child{box-shadow:inset 3.5px 0 0 #16a34a}
+  .r-o{background:#fffdf7}.r-o:hover{background:#fef9e7}.r-o td:first-child{box-shadow:inset 3.5px 0 0 #f59e0b}
+  .r-d{background:#fff9f9;color:#7f1d1d}.r-d:hover{background:#fef2f2}.r-d td:first-child{box-shadow:inset 3.5px 0 0 #dc2626}
+  .r-dep{background:#f8f9ff;color:#1e1b4b}.r-dep:hover{background:#eef2ff}.r-dep td:first-child{box-shadow:inset 3.5px 0 0 #4f46e5}
+  /* Tarjetas KPI y paneles */
+  .kpi-card{background:#fff;border:1px solid var(--border-hairline);border-radius:.85rem;padding:1.05rem 1.15rem;box-shadow:0 1px 3px rgba(15,23,42,.03),0 1px 2px rgba(15,23,42,.02);transition:transform .16s ease,box-shadow .16s ease}
+  .kpi-card:hover{transform:translateY(-1px);box-shadow:0 8px 20px -6px rgba(15,23,42,.08)}
+  .panel-card{background:#fff;border:1px solid var(--border-hairline);border-radius:.85rem;box-shadow:0 1px 3px rgba(15,23,42,.03)}
+  :focus-visible{outline:2px solid #0f1e36;outline-offset:2px}
+  /* Menús desplegables refinados */
   .dd-wrap{position:relative;display:inline-block}
-  .dd-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:255px;background:#fff;border:1px solid #cbd5e1;border-radius:.625rem;box-shadow:0 12px 28px -4px rgba(15,23,42,.14),0 4px 10px -2px rgba(15,23,42,.06);padding:.375rem;z-index:45;animation:ddIn .12s ease-out}
+  .dd-menu{position:absolute;right:0;top:calc(100% + 7px);min-width:265px;background:#fff;border:1px solid #dce2ea;border-radius:.75rem;box-shadow:0 16px 36px -6px rgba(15,23,42,.15),0 4px 12px -2px rgba(15,23,42,.06);padding:.45rem;z-index:45;animation:ddIn .14s cubic-bezier(.16,1,.3,1)}
   .dd-menu.left-align{right:auto;left:0}
-  @keyframes ddIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
-  .dd-item{width:100%;display:flex;align-items:flex-start;gap:.625rem;padding:.5rem .625rem;border-radius:.45rem;text-align:left;font-size:.8125rem;color:#1e293b;transition:background .1s}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .dd-item{width:100%;display:flex;align-items:flex-start;gap:.65rem;padding:.55rem .65rem;border-radius:.5rem;text-align:left;font-size:.8125rem;color:#1e293b;transition:background .12s}
   .dd-item:hover{background:#f1f5f9}
   .dd-item.danger{color:#b91c1c}
   .dd-item.danger:hover{background:#fef2f2}
   .dd-item.warn{color:#b45309}
   .dd-item.warn:hover{background:#fffbeb}
-  .dd-sep{height:1px;background:#e2e8f0;margin:.35rem .25rem}
-  .dd-lbl{padding:.25rem .625rem;font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
+  .dd-sep{height:1px;background:#e2e8f0;margin:.38rem .3rem}
+  .dd-lbl{padding:.28rem .65rem;font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b}
+  /* Modales con backdrop blur */
+  #modal{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  #modal > div{border-radius:1rem;border:1px solid #e2e8f0;box-shadow:0 24px 48px -12px rgba(15,23,42,.25)}
 </style>
 </head>
 <body class="h-screen flex overflow-hidden">
-<aside class="w-64 shrink-0 flex flex-col text-slate-200" style="background:#16212e">
-  <div class="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-2">
-    <div class="min-w-0">
-      <div class="font-bold text-white text-sm leading-snug">Sistema de Tracking de Compra</div>
-      <div class="text-xs text-slate-400 font-medium mt-0.5">Medeport</div>
+<aside class="w-[268px] shrink-0 flex flex-col text-slate-200 border-r border-slate-800/80 select-none" style="background:linear-gradient(180deg, #0b1526 0%, #101f36 100%)">
+  <div class="px-5 pt-5 pb-4 border-b border-white/[0.08]">
+    <div class="flex items-center justify-between gap-2 mb-2.5">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-6 rounded-sm bg-[#d92d20] inline-block shrink-0"></span>
+        <div>
+          <div class="text-[11px] font-extrabold tracking-[0.14em] uppercase text-slate-400 leading-none">KSM · MEDEPORT</div>
+          <div class="font-bold text-white text-[14px] tracking-tight leading-tight mt-0.5">Sistema de Tracking - KSM</div>
+        </div>
+      </div>
+      <button type="button" id="cloudStatusBtn" onclick="promptCloudSync()" class="shrink-0 flex items-center gap-1.5 text-[11px] text-emerald-400 font-semibold bg-emerald-950/70 border border-emerald-500/30 px-2.5 py-0.5 rounded-full hover:bg-emerald-900/60 transition cursor-pointer" title="Base Local · Haz clic para vincular carpeta OneDrive / SharePoint">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Local
+      </button>
     </div>
-    <button type="button" id="cloudStatusBtn" onclick="promptCloudSync()" class="shrink-0 flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded-full mt-0.5 hover:bg-emerald-900/60 transition cursor-pointer" title="Base Local · Haz clic para vincular carpeta OneDrive / SharePoint">
-      <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Local
-    </button>
+    <div class="text-[11px] text-slate-400/90 leading-snug">Control de Compras, Facturación & Régimen DEPCO</div>
   </div>
-  <nav id="side" class="flex-1 overflow-y-auto py-2"></nav>
+  <nav id="side" class="flex-1 overflow-y-auto py-3 px-2 space-y-2"></nav>
+  <div class="px-4 py-3 border-t border-white/[0.07] text-[11px] text-slate-400 flex items-center justify-between">
+    <span>Planificación Comercial</span>
+    <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-300">ECU · USD</span>
+  </div>
 </aside>
 <main id="main" class="flex-1 min-w-0 flex flex-col"></main>
 <input type="file" id="fBuyInit" accept=".xlsx,.xls,.csv" class="hidden">
@@ -68,6 +118,9 @@
 <input type="file" id="fSizeMap" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fPtsAssign" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fSapCatalog" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fDepcoBill" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fDepcoPts" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fDepcoConsol" accept=".xlsx,.xls,.csv" class="hidden">
 <div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"></div>
 <div id="busy" class="hidden fixed inset-0 bg-white/70 z-40 flex items-center justify-center text-sm font-medium">
   <span id="busyMsg" class="bg-white shadow px-4 py-2 rounded"></span>
@@ -213,8 +266,8 @@ function getTallaSapCandidates(gridVal, explicitSap, lookupMap) {
 const TIENDAS_ADIDAS = new Set([
   'CITY', 'CONDADO', 'CAPUEL-CLUB EMELEC', 'EMELEC-TIENDA', 'CUENCA', 'JARDIN',
   'QUICENTRO', 'SAN MARINO', 'SCALA', 'SOL', 'VILLAGE', 'PRO2', 'PR02', 'OCS CUENCA',
-  'DORAL', 'SNEAKER COLLECT TIENDA', 'AMBATO', 'SANTO DOMINGO',
-  'ORIGINALS SCALA-CONDAD', 'WC02', 'WEB ADIDAS TIENDAS', 'OC SOL'
+  'OCS NUEVAS', 'DMS1', 'DMS2', 'DORAL', 'SNEAKER COLLECT TIENDA', 'AMBATO', 'SANTO DOMINGO',
+  'ORIGINALS SCALA-CONDAD', 'WC02', 'WEB ADIDAS TIENDAS', 'OC SOL', 'TIENDAS'
 ].map(s => s.trim().toUpperCase()));
 const TIENDAS_REEBOK = new Set([
   'CONDADO', 'CUENCA', 'SOL', 'QUICENTRO SUR', 'PRO2', 'PR02'
@@ -222,7 +275,7 @@ const TIENDAS_REEBOK = new Set([
 function resolverCanalInicial(refCompra, marca) {
   const ref = String(refCompra || '').trim().toUpperCase();
   if (!ref) return '';
-  if (ref === 'PR02' || ref === 'PRO2' || ref.includes('PR02') || ref.includes('PRO2')) return 'TIENDAS';
+  if (ref === 'PR02' || ref === 'PRO2' || ref.includes('PR02') || ref.includes('PRO2') || /^DMS\d*$/.test(ref) || ref.startsWith('OCS ') || ref.includes('TIENDA')) return 'TIENDAS';
   const isAdi = String(marca || '').toUpperCase().includes('ADI');
   const pool = isAdi ? TIENDAS_ADIDAS : TIENDAS_REEBOK;
   if (pool.has(ref)) return 'TIENDAS';
@@ -234,7 +287,7 @@ function normalizarCanal(c) {
   return s;
 }
 /* ============ LAS 37 COLUMNAS MAESTRAS Y COLUMNAS INICIALES (10A) ============ */
-const E10='10A-NOTIFICACION PRODUCTO DISPONIBLE', EP='P24-INSTRUCCIÓN- GENERACION  DE EMBARQUE', ED='DROP-CANCELADO MARCA';
+const E10='10A-NOTIFICACION PRODUCTO DISPONIBLE', EP='P24-INSTRUCCIÓN- GENERACION  DE EMBARQUE', ED='DROP-CANCELADO MARCA', EDEPCO='DEPCO-DEPOSITO COMERCIAL';
 const MASTER_COLS = [
   'Seguimiento', 'Detalle compra', 'Temporada', 'Marca', 'Grupo', 'Categoría', 'Actividad', 'Línea', 
   'Referencia compra', 'Canal Inicial', 'Canal Final',
@@ -242,8 +295,8 @@ const MASTER_COLS = [
   'Fecha de entrega', 'Fecha de venta', 'Cantidad', 
   'FOB', 'Valor Neto',
   'PVP', 'PVP Final', 'PVP retail', 'P4', 'P4 Final', 'PMY', 'PMY Final',
-  'Etapa', 'Documento', 'EMBARQUE', 'Fecha estimada inicio',
-  'Fecha real inicio', 'Fecha estimada fin', 'Fecha real fin', 'Factura', 'Delivery', 'Fecha de factura', 'Fecha de ingreso embarque'
+  'Etapa', 'Régimen', 'LPN ID', 'Documento', 'EMBARQUE', 'Fecha estimada inicio',
+  'Fecha real inicio', 'Fecha estimada fin', 'Fecha real fin', 'Factura', 'Delivery', 'Fecha de factura', 'Fecha de ingreso embarque', 'OBS'
 ];
 // Columnas limpias de compra inicial (sin campos finales de Producto ni facturación) para armar OC inicial (10A)
 const INITIAL_10A_COLS = [
@@ -268,8 +321,12 @@ const S = {
   sizePairs: [],
   sapCatalog: {},
   billingHistory: { Adidas: [], Reebok: [] },
+  depcoLpnHistory: [],
+  tiendasConsolHistory: [],
   lastBillingPreview: null,
   billTab: { q: '', codigo: '', embarque: '', factura: '', temporada: '', canal: '', forwarderOnly: false, page: 1, size: 50 },
+  depcoTab: { q: '', embarque: '', factura: '', canalFact: '', lpn: '', page: 1, size: 50 },
+  skuTrace: { selectedSku: '', q: '', scope: 'season' },
   counts: {},
   cloud: {
     dirHandle: null,
@@ -298,7 +355,7 @@ const normTalla = t => {
   if (!s) return '';
   return /^0+(\.0+)?$/.test(s) ? '0' : s.replace(/^0+(?=\d)/, '');
 };
-const st = r => String(r['Etapa'] || '').startsWith('P24') ? 'p' : String(r['Etapa'] || '').startsWith('DROP') ? 'd' : 'o';
+const st = r => String(r['Etapa'] || '').startsWith('P24') ? 'p' : String(r['Etapa'] || '').startsWith('DROP') ? 'd' : String(r['Etapa'] || '').startsWith('DEPCO') ? 'dep' : 'o';
 const sbKey = () => S.brand + '|' + S.season;
 const busy = m => { $('busyMsg').textContent = m || ''; $('busy').classList.toggle('hidden', !m); };
 const tick = () => new Promise(r => setTimeout(r, 15));
@@ -436,6 +493,8 @@ async function saveMeta() {
   t.objectStore('meta').put(S.sizePairs || [], 'sizePairs');
   t.objectStore('meta').put(S.sapCatalog || {}, 'sapCatalog');
   t.objectStore('meta').put(S.billingHistory || { Adidas: [], Reebok: [] }, 'billingHistory');
+  t.objectStore('meta').put(S.depcoLpnHistory || [], 'depcoLpnHistory');
+  t.objectStore('meta').put(S.tiendasConsolHistory || [], 'tiendasConsolHistory');
   await txDone(t);
 }
 async function refreshCounts() {
@@ -462,6 +521,10 @@ async function reload() {
     // Todo registro histórico que no tenga Detalle compra asignado se etiqueta automáticamente como COMPRA CANAL
     if (!r['Detalle compra'] || !String(r['Detalle compra']).trim()) {
       r['Detalle compra'] = 'COMPRA CANAL';
+      dirty = true;
+    }
+    if (!r['Régimen'] || !String(r['Régimen']).trim()) {
+      r['Régimen'] = 'CONSUMO';
       dirty = true;
     }
     const rRefUp = String(r['Referencia compra'] || '').trim().toUpperCase();
@@ -588,7 +651,9 @@ async function pushCloudConfig() {
     logos: S.logos,
     sizePairs: S.sizePairs,
     sapCatalog: S.sapCatalog,
-    billingHistory: S.billingHistory
+    billingHistory: S.billingHistory,
+    depcoLpnHistory: S.depcoLpnHistory,
+    tiendasConsolHistory: S.tiendasConsolHistory
   };
   await writeCloudFile(cfgFileName(), JSON.stringify(cfg));
 }
@@ -753,6 +818,8 @@ async function pullFromCloudFolder(onlyActiveSeason = false, silent = false) {
       if (cfgData.billingHistory && typeof cfgData.billingHistory === 'object') {
         S.billingHistory = { Adidas: [], Reebok: [], ...cfgData.billingHistory };
       }
+      if (Array.isArray(cfgData.depcoLpnHistory)) S.depcoLpnHistory = cfgData.depcoLpnHistory;
+      if (Array.isArray(cfgData.tiendasConsolHistory)) S.tiendasConsolHistory = cfgData.tiendasConsolHistory;
       await saveMeta();
     } catch (e) {}
     // Listar archivos reales en la carpeta
@@ -1799,6 +1866,26 @@ async function promptOcType() {
          <div class="font-semibold text-slate-900 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4 text-violet-600"></i> 5. OC Directa Completa (10A → P24 + Canales y Precios Finales)</div>
          <div class="text-xs text-slate-500 mt-0.5">Cuando la OC sigue en <b>10A</b> y subes directamente el archivo final de Producto en un solo paso.</div>
        </button>
+       ${!isReebok ? `
+       <div class="pt-2 border-t">
+         <div class="text-[11px] font-bold uppercase tracking-wider text-indigo-800 mb-2">Régimen DEPCO / Consolidado por Cartón (LPN) · Adidas</div>
+         <div class="space-y-2">
+           <button id="btnChooseDepcoStep1" class="w-full text-left p-3 border-2 border-indigo-200 bg-indigo-50/50 rounded-lg hover:border-indigo-600 hover:bg-indigo-50 transition">
+             <div class="font-semibold text-indigo-950 flex items-center justify-between gap-2">
+               <span class="flex items-center gap-2"><i data-lucide="package-plus" class="w-4 h-4 text-indigo-700"></i> 6. Armar OC (LPN) Embarque - Consolidado para Producto</span>
+               <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-900">Paso 1 · DEPCO</span>
+             </div>
+             <div class="text-xs text-slate-600 mt-1">Cruza Facturación Adidas (<code>Carton Nr.</code> → <code>LPN ID</code>) + PTs COMEX + Plantilla + Tallas/SAP/EAN + Canal Factura desde 10A (normalizando tiendas a <code>TIENDAS</code>).</div>
+           </button>
+           <button id="btnChooseDepcoStep2" class="w-full text-left p-3 border-2 border-purple-200 bg-purple-50/50 rounded-lg hover:border-purple-600 hover:bg-purple-50 transition">
+             <div class="font-semibold text-purple-950 flex items-center justify-between gap-2">
+               <span class="flex items-center gap-2"><i data-lucide="warehouse" class="w-4 h-4 text-purple-700"></i> 7. Procesar OC (LPN) - CONSOLIDADO de Producto + Ingresos Tiendas</span>
+               <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-200 text-purple-900">Paso 2 · DEPCO</span>
+             </div>
+             <div class="text-xs text-slate-600 mt-1">Separa <b>IMPORTAR</b> (pasa a <b>P24</b> con canales y precios finales) vs. <b>NO IMPORTAR / DEPCO</b> (queda en inventario <b>DEPCO</b>) y genera automáticamente <b>INGRESOS TIENDAS CONSOLIDADO</b>.</div>
+           </button>
+         </div>
+       </div>` : ''}
      </div>`,
     [['Cancelar', 'c']]
   );
@@ -1806,6 +1893,8 @@ async function promptOcType() {
 }
 document.addEventListener('click', e => {
   if (e.target.closest('#btnChooseBillingBrand')) { $('modal').classList.add('hidden'); openBillingWithPtsModal(); }
+  if (e.target.closest('#btnChooseDepcoStep1')) { $('modal').classList.add('hidden'); openDepcoLpnStep1Modal(); }
+  if (e.target.closest('#btnChooseDepcoStep2')) { $('modal').classList.add('hidden'); $('fDepcoConsol').click(); }
   if (e.target.closest('#btnChoosePtsAssign')) { $('modal').classList.add('hidden'); $('fPtsAssign').dataset.mode = ''; $('fPtsAssign').click(); }
   if (e.target.closest('#btnOpenLastBillingPreview')) { $('modal').classList.add('hidden'); viewBillingPreviewModal(S.lastBillingPreview); }
   if (e.target.closest('#btnChoosePrelim')) { $('modal').classList.add('hidden'); $('fOcPrelim').click(); }
@@ -3364,6 +3453,889 @@ function viewBillingPreviewModal(previewObj) {
   renderPrevRows();
 }
 
+
+/* ============ MOTOR RÉGIMEN DEPCO / CONSOLIDADO POR CARTÓN (LPN) Y INGRESOS TIENDAS ============ */
+const LPN_OC_HEADERS = [
+  'LPN ID', 'Item Description', 'MARCA', 'LINEA', 'GRUPO', 'CATEGORIA', 'ACTIVIDAD', 'DESCRIPCION', 'GENERO',
+  'FOB MARCA', 'PVP', 'P4', 'PMY', 'Item Size', 'LPN Detail Size Value', 'TALLA SAP', 'ID', 'SAP', 'EAN',
+  'Order ID', 'Invoice Date', 'Invoices', 'Item Bar Code', 'IDF', 'CANAL FACTURA', 'EMBARQUE'
+];
+
+const INGRESOS_TIENDAS_HEADERS = [
+  'Seguimiento', 'Temporada', 'Marca', 'Grupo', 'Categoría', 'Actividad', 'Referencia compra', 'CANAL',
+  'ID', 'REV', 'Código', 'TALLA SAP', 'ID.1', 'SAP', 'EAN', 'Color', 'Talla', 'Talla marca', 'Eancode',
+  'Descripción', 'Género', 'Código JDE', 'Fecha de entrega', 'Fecha de venta', 'Cantidad', 'FOB',
+  'PVP', 'P4', 'PMY', 'PVP FINAL', 'P4 FINAL', 'P6 FINAL', 'Etapa', 'Subetapa', 'Nº documento',
+  'Documento', 'Nº de embarque', 'Fecha estimada inicio', 'Fecha real inicio', 'Fecha estimada fin',
+  'Fecha real fin', 'Factura', 'Fecha de factura', 'FOB MARCA', 'EMBARQUE', 'OBS'
+];
+
+let pendingDepcoBillFile = null;
+let pendingDepcoPtsFile = null;
+
+function openDepcoLpnStep1Modal() {
+  pendingDepcoBillFile = null;
+  pendingDepcoPtsFile = null;
+  const m = $('modal');
+  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-xl p-6">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[10px] font-bold uppercase">Régimen DEPCO · Paso 1</span>
+      <h3 class="text-lg font-semibold text-slate-900">Armar OC (LPN) Embarque - Consolidado</h3>
+    </div>
+    <p class="text-xs text-slate-500 mb-4">Genera la OC a nivel de cartón (<code>Carton Nr.</code> → <code>LPN ID</code>) para enviar a Producto, cruzando Plantilla de Presentación, Tallas/SAP/EAN y <b>CANAL FACTURA</b> desde el saldo 10A (normalizando tiendas a <code>TIENDAS</code>).</p>
+    <div class="space-y-3 text-sm">
+      <div class="p-3.5 border-2 border-dashed border-indigo-300 rounded-lg bg-indigo-50/40">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="font-semibold text-indigo-950 text-xs uppercase tracking-wide">1. Detalle de Facturación Adidas (Obligatorio)</div>
+            <div id="lblDepcoBillName" class="text-xs text-slate-600 mt-1">Debe incluir <code>Carton Nr.</code>, <code>Material</code>, <code>Grid Value</code>, <code>Delivery quantity</code>, <code>Net price</code>, <code>Delivery</code>, <code>Invoice Number</code>…</div>
+          </div>
+          <button type="button" id="btnPickDepcoBill" class="btn btn-p !text-xs shrink-0">Elegir Facturación</button>
+        </div>
+      </div>
+      <div class="p-3.5 border-2 border-dashed border-teal-300 rounded-lg bg-teal-50/40">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="font-semibold text-teal-950 text-xs uppercase tracking-wide">2. Excel PTs de COMEX (Para asignar Embarque)</div>
+            <div id="lblDepcoPtsName" class="text-xs text-slate-600 mt-1">Cruza <code>Delivery</code> contra el listado de PTs para etiquetar el embarque (ej. <code>PANAMA 62</code>).</div>
+          </div>
+          <button type="button" id="btnPickDepcoPts" class="btn !bg-teal-700 !text-white !border-teal-700 hover:!bg-teal-800 !text-xs shrink-0">Elegir PTs COMEX</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre del Embarque (Opcional / Sobrescribe nombre detectado en PTs)</label>
+        <input type="text" id="inpDepcoEmbOverride" class="border rounded px-3 py-1.5 text-sm w-full bg-white font-semibold uppercase" placeholder="Ej. PANAMA 62">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5 pt-3 border-t">
+      <button type="button" id="btnCancelDepco1" class="btn">Cancelar</button>
+      <button type="button" id="btnRunDepco1" class="btn btn-p disabled:opacity-50" disabled>Generar OC (LPN) para Producto</button>
+    </div>
+  </div>`;
+  m.classList.remove('hidden');
+  $('btnPickDepcoBill').onclick = () => $('fDepcoBill').click();
+  $('btnPickDepcoPts').onclick = () => $('fDepcoPts').click();
+  $('btnCancelDepco1').onclick = () => m.classList.add('hidden');
+  $('btnRunDepco1').onclick = async () => {
+    if (!pendingDepcoBillFile) return;
+    const embOverride = $('inpDepcoEmbOverride') ? $('inpDepcoEmbOverride').value.trim().toUpperCase() : '';
+    m.classList.add('hidden');
+    await buildDepcoLpnOrder(pendingDepcoBillFile, pendingDepcoPtsFile, embOverride);
+  };
+}
+
+function normalizeStoreChannelForLpn(rawRef, brand = 'Adidas') {
+  const s = String(rawRef || '').trim().toUpperCase();
+  if (!s) return '';
+  const resolved = resolverCanalInicial(s, brand);
+  if (resolved === 'TIENDAS') return 'TIENDAS';
+  return resolved || s;
+}
+
+async function buildDepcoLpnOrder(billFile, ptsFile = null, embOverride = '') {
+  try {
+    busy('Generando OC (LPN) Embarque - Consolidado desde Facturación Adidas…');
+    await tick();
+    const ptsMap = ptsFile ? await parsePtsExcelMap(ptsFile) : new Map();
+    const ptsEmbs = [...new Set(ptsMap.values())];
+    const defaultEmb = embOverride || ptsEmbs[0] || 'CONSOLIDADO DEPCO';
+
+    const wb = XLSX.read(await billFile.arrayBuffer(), { type: 'array', cellDates: true });
+    const targetSheet = wb.Sheets['Sheet1'] ? 'Sheet1' : (wb.Sheets['Hoja1'] ? 'Hoja1' : wb.SheetNames[0]);
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[targetSheet], { defval: '', raw: true });
+    if (!raw.length) throw new Error('El archivo de facturación Adidas está vacío.');
+
+    const sizeLookup = buildTallaSapLookup();
+    const { tplBySeason, globalTplItems } = getBrandTplCatalogMap('Adidas');
+    const allAdidasRows = await getAllBrandRows('Adidas');
+
+    // Construir pool virtual mutable de saldos 10A para asignar CANAL FACTURA de forma fiel a las unidades disponibles
+    const virtualPoolBySeasonCod = new Map();
+    const virtualPoolByCod = new Map();
+    const allRowsByCod = new Map();
+    for (const r of allAdidasRows) {
+      const cod = norm(r['Código']);
+      if (!cod) continue;
+      if (!allRowsByCod.has(cod)) allRowsByCod.set(cod, []);
+      allRowsByCod.get(cod).push(r);
+      if (st(r) === 'o' && Number(r['Cantidad'] || 0) > 0) {
+        const temp = norm(r.season || r['Temporada']);
+        const vItem = {
+          temp,
+          cod,
+          tal: normTalla(r['Talla']),
+          talM: normTalla(r['Talla marca']),
+          canalFact: normalizeStoreChannelForLpn(r['Canal Inicial'] || r['Referencia compra'], 'Adidas'),
+          rem: Number(r['Cantidad'] || 0)
+        };
+        const scKey = `${temp}|${cod}`;
+        if (!virtualPoolBySeasonCod.has(scKey)) virtualPoolBySeasonCod.set(scKey, []);
+        virtualPoolBySeasonCod.get(scKey).push(vItem);
+        if (!virtualPoolByCod.has(cod)) virtualPoolByCod.set(cod, []);
+        virtualPoolByCod.get(cod).push(vItem);
+      }
+    }
+
+    const parseNum = v => Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0;
+    const outputRows = [];
+    const canalSummary = {};
+    let totalUnits = 0;
+
+    for (const o of raw) {
+      const matRaw = String(getRowVal(o, ['Material', 'Item Description', 'Código', 'Codigo']) ?? '').trim();
+      const codNorm = norm(matRaw);
+      const qty = parseNum(getRowVal(o, ['Delivery quantity', 'Delivery Quantity', 'LPN Detail Size Value', 'Cantidad', 'QTY']));
+      if (!codNorm || qty <= 0) continue;
+
+      // Filtrar por PTs si el usuario cargó archivo de PTs COMEX
+      const ptRaw = normalizePtId(getRowVal(o, ['Delivery', 'Order ID', 'PT', 'Entrega']));
+      if (ptsMap.size > 0 && ptRaw && !ptsMap.has(ptRaw)) {
+        continue; // Solo incluir en este LPN los PTs que entran en el embarque consolidado
+      }
+
+      const lpnId = normalizePtId(getRowVal(o, ['Carton Nr.', 'Carton Nr', 'Carton Number', 'LPN ID', 'LPN', 'Carton'])) || '';
+      const invNum = String(getRowVal(o, ['Invoice Number', 'Invoices', 'Factura', 'No FACTURA']) ?? '').trim();
+      const invDate = fdate(getRowVal(o, ['Invoice Date', 'FECHA DE FACTURA', 'Fecha de factura', 'Additional Date']));
+      const poRaw = String(getRowVal(o, ['Purchase order no. (35 char)', 'Purchase order no.', 'Purchase Order', 'PO']) ?? '').trim();
+      const gridVal = String(getRowVal(o, ['Grid Value', 'Item Size', 'Talla marca']) ?? '').trim();
+      const explicitSap = String(getRowVal(o, ['TALLA SAP', 'Talla SAP']) ?? '').trim();
+      const fobMarca = parseNum(getRowVal(o, ['Net price', 'Net Price', 'FOB MARCA', 'FOB']));
+      const eanFromBill = String(getRowVal(o, ['EAN', 'Item Bar Code', 'EAN/UPC', 'UPC']) ?? '').trim();
+
+      const seasonDet = extractSeasonFromPO(poRaw, S.season);
+      const seasonTpl = tplBySeason[norm(seasonDet)] || globalTplItems;
+      const tplItem = seasonTpl ? seasonTpl[codNorm] : null;
+
+      const linea = (tplItem && tplItem.linea) ? tplItem.linea : String(getRowVal(o, ['LINEA', 'Línea', 'Product line']) ?? '').trim();
+      const grupo = (tplItem && tplItem.grupo) ? tplItem.grupo : String(getRowVal(o, ['GRUPO', 'Product Type Description']) ?? '').trim();
+      const categoria = getTplFieldFromEntry(tplItem, 'categoria', ['tipoventa', 'categoria']) || String(getRowVal(o, ['CATEGORIA', 'TIPO_VENTA', 'Division']) ?? '').trim();
+      const actividad = (tplItem && tplItem.actividad) ? tplItem.actividad : String(getRowVal(o, ['ACTIVIDAD', 'Sport Description']) ?? '').trim();
+      const descripcion = (tplItem && tplItem.descripcion) ? tplItem.descripcion : String(getRowVal(o, ['Material Description', 'DESCRIPCION', 'Name']) ?? '').trim();
+      const genero = (tplItem && tplItem.genero) ? tplItem.genero : String(getRowVal(o, ['GENERO', 'Gender']) ?? '').trim();
+      const pvp = (tplItem && tplItem.pvp > 0) ? tplItem.pvp : parseNum(getRowVal(o, ['PVP']));
+      const p4 = (tplItem && tplItem.p4 > 0) ? tplItem.p4 : parseNum(getRowVal(o, ['P4']));
+      const pmy = (tplItem && tplItem.pmy > 0) ? tplItem.pmy : parseNum(getRowVal(o, ['PMY']));
+
+      const poolForSku = allRowsByCod.get(codNorm) || [];
+      const tallaSap = resolveTallaSapFromGrid(gridVal, explicitSap, sizeLookup, poolForSku, {
+        brand: 'Adidas',
+        material: matRaw,
+        grupo
+      });
+
+      const idNoSpace = `${matRaw}${tallaSap}`.replace(/\s+/g, '');
+      const idfNoSpace = `${matRaw}${tallaSap}${invNum}`.replace(/\s+/g, '');
+      const sapHit = lookupSapEanFromCatalog('Adidas', matRaw, tallaSap);
+      const sapCode = sapHit ? sapHit.marSap : '';
+      const eanCode = (sapHit && sapHit.eanSap) ? sapHit.eanSap : eanFromBill;
+
+      // Deducir CANAL FACTURA desde disponibilidad en 10A (normalizando tiendas a TIENDAS)
+      const tempNorm = norm(seasonDet);
+      const talNorm = normTalla(tallaSap);
+      const gridNorm = normTalla(gridVal);
+      const candidates10A = [
+        ...(virtualPoolBySeasonCod.get(`${tempNorm}|${codNorm}`) || []),
+        ...(virtualPoolByCod.get(codNorm) || [])
+      ].filter((v, idx, arr) => arr.indexOf(v) === idx && v.rem > 0 && (v.tal === talNorm || (gridNorm && v.talM === gridNorm)));
+
+      let canalFactura = '';
+      if (candidates10A.length > 0) {
+        // Priorizar coincidencia exacta de temporada y tomar el canal con saldo disponible
+        candidates10A.sort((a, b) => ((b.temp === tempNorm ? 10 : 0) + (b.rem >= qty ? 5 : 0)) - ((a.temp === tempNorm ? 10 : 0) + (a.rem >= qty ? 5 : 0)));
+        const best = candidates10A[0];
+        canalFactura = best.canalFact;
+        best.rem = Math.max(0, best.rem - qty);
+      }
+      if (!canalFactura) {
+        canalFactura = normalizeStoreChannelForLpn(resolveCanalInicialFromPO(poRaw), 'Adidas') || 'TIENDAS';
+      }
+
+      const rowEmb = embOverride || (ptRaw && ptsMap.has(ptRaw) ? ptsMap.get(ptRaw) : defaultEmb);
+      totalUnits += qty;
+      canalSummary[canalFactura] = (canalSummary[canalFactura] || 0) + qty;
+
+      outputRows.push([
+        lpnId, matRaw, 'ADIDAS', linea, grupo, categoria, actividad, descripcion, genero,
+        fobMarca, pvp, p4, pmy, gridVal, qty, tallaSap, idNoSpace, sapCode, eanCode,
+        ptRaw, invDate, invNum, eanCode, idfNoSpace, canalFactura, rowEmb
+      ]);
+    }
+
+    if (!outputRows.length) {
+      busy();
+      return modal('Sin filas generadas', 'No se encontraron líneas válidas (o ningún PT coincidió con el archivo de PTs de COMEX seleccionado).');
+    }
+
+    const embLabel = embOverride || defaultEmb || 'EMBARQUE';
+    const wbOut = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbOut, XLSX.utils.aoa_to_sheet([LPN_OC_HEADERS, ...outputRows]), 'Hoja1');
+    const outFileName = `OC (LPN) ${embLabel}.xlsx`;
+    XLSX.writeFile(wbOut, outFileName);
+
+    busy();
+    const canalBadges = Object.entries(canalSummary)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, u]) => `<span class="inline-block bg-indigo-50 border border-indigo-200 text-indigo-950 px-2 py-0.5 rounded text-xs font-semibold mr-1.5 mb-1">${esc(c)}: ${fn(u)} unid.</span>`)
+      .join('');
+
+    modal(
+      'OC (LPN) Generada y Descargada',
+      `<div class="space-y-2.5 text-slate-700">
+         <p>Se generó el archivo <b>${esc(outFileName)}</b> listo para enviar a Producto con <b>${fn(outputRows.length)} líneas de cartón (LPN)</b> y <b>${fn(totalUnits)} unidades</b>.</p>
+         <div class="p-3 rounded-lg bg-slate-50 border text-xs">
+           <div class="font-bold text-slate-800 mb-1.5">Distribución por CANAL FACTURA (cruzado vs. 10A):</div>
+           <div>${canalBadges}</div>
+         </div>
+         <p class="text-xs text-slate-500">Todos los códigos de tienda fueron normalizados a <code>TIENDAS</code>. Cuando Producto te devuelva este archivo con las columnas <code>INSTRUCCIÓN</code> y <code>CANAL FINAL</code>, súbelo en el <b>Paso 2</b>.</p>
+       </div>`
+    );
+  } catch (e) {
+    busy();
+    modal('Error al generar OC (LPN)', esc(e.message || e));
+  }
+}
+
+/* ============ PASO 2 DEPCO: PROCESAR OC (LPN) - CONSOLIDADO DE PRODUCTO + INGRESOS TIENDAS CONSOLIDADO ============ */
+function buildIngresosTiendasConsolidatedRows(tiendasLpnItems, allAdidasRows, embName, sizeLookup, tplBySeason, globalTplItems) {
+  // Pool de líneas 10A de Adidas (priorizando TIENDAS primero, pero permitiendo cruce desde otros canales con OBS = IMPORTADO POR CRUCE)
+  const poolTiendas = [];
+  const poolOtrosCanales = [];
+  for (const r of allAdidasRows) {
+    if (st(r) !== 'o' || Number(r['Cantidad'] || 0) <= 0) continue;
+    const cIni = normalizeStoreChannelForLpn(r['Canal Inicial'] || r['Referencia compra'], 'Adidas');
+    const clone = {
+      src: r,
+      rem: Number(r['Cantidad'] || 0),
+      codNorm: norm(r['Código']),
+      talNorm: normTalla(r['Talla']),
+      talMNorm: normTalla(r['Talla marca']),
+      isTiendaOrig: cIni === 'TIENDAS'
+    };
+    if (clone.isTiendaOrig) poolTiendas.push(clone);
+    else poolOtrosCanales.push(clone);
+  }
+
+  const outRows = [];
+  let cruceUnits = 0;
+
+  for (const item of tiendasLpnItems) {
+    const codNorm = norm(item.codigo);
+    const talNorm = normTalla(item.tallaSap);
+    const gridNorm = normTalla(item.itemSize);
+    let rem = item.qty;
+
+    const matchPred = p => p.rem > 0 && p.codNorm === codNorm && (p.talNorm === talNorm || (gridNorm && p.talMNorm === gridNorm) || p.talNorm === gridNorm);
+    const candidates = [
+      ...poolTiendas.filter(matchPred),
+      ...poolOtrosCanales.filter(matchPred)
+    ];
+
+    const pushFormattedRow = (baseSrc, takeQty, isCruce) => {
+      const refCompra = baseSrc ? (baseSrc['Referencia compra'] || 'PR02') : 'PR02';
+      const tempRow = baseSrc ? (baseSrc['Temporada'] || baseSrc.season || S.season) : S.season;
+      const segRow = baseSrc ? (baseSrc['Seguimiento'] || '') : '';
+      const seasonTpl = tplBySeason[norm(tempRow)] || globalTplItems;
+      const tplItem = seasonTpl ? seasonTpl[codNorm] : null;
+
+      const grupo = item.grupo || (baseSrc && baseSrc['Grupo']) || (tplItem && tplItem.grupo) || '';
+      const cat = item.categoria || (baseSrc && baseSrc['Categoría']) || (tplItem && tplItem.categoria) || '';
+      const act = item.actividad || (baseSrc && baseSrc['Actividad']) || (tplItem && tplItem.actividad) || '';
+      const color = (baseSrc && baseSrc['Color']) || (tplItem && tplItem.color) || '';
+      const desc = item.descripcion || (baseSrc && baseSrc['Descripción']) || (tplItem && tplItem.descripcion) || '';
+      const gen = item.genero || (baseSrc && baseSrc['Género']) || (tplItem && tplItem.genero) || '';
+      const fEntrega = (baseSrc && baseSrc['Fecha de entrega']) || (tplItem && tplItem.fEntrega) || '';
+      const fEstIni = (baseSrc && baseSrc['Fecha estimada inicio']) || '';
+      const fRealIni = (baseSrc && baseSrc['Fecha real inicio']) || '';
+      const fEstFin = (baseSrc && baseSrc['Fecha estimada fin']) || '';
+      const fobIni = (baseSrc && Number(baseSrc['FOB']) > 0) ? Number(baseSrc['FOB']) : item.fobMarca;
+      const pvpIni = item.pvp > 0 ? item.pvp : ((baseSrc && Number(baseSrc['PVP'])) || 0);
+      const p4Ini = item.p4 > 0 ? item.p4 : ((baseSrc && Number(baseSrc['P4'])) || 0);
+      const pmyIni = item.pmy > 0 ? item.pmy : ((baseSrc && Number(baseSrc['PMY'])) || 0);
+      const pvpFin = item.pvpFinal > 0 ? item.pvpFinal : pvpIni;
+      const p4Fin = item.p4Final > 0 ? item.p4Final : p4Ini;
+      const pmyFin = item.pmyFinal > 0 ? item.pmyFinal : pmyIni;
+
+      const idCanalTemp = `${item.codigo}TIENDAS${tempRow}`.replace(/\s+/g, '');
+      const idCodTalla = `${item.codigo}${item.tallaSap}`.replace(/\s+/g, '');
+      const sapHit = lookupSapEanFromCatalog('Adidas', item.codigo, item.tallaSap);
+      const sapCode = item.sap || (sapHit ? sapHit.marSap : '');
+      const eanCode = item.ean || (sapHit ? sapHit.eanSap : '');
+      const obsVal = isCruce ? 'IMPORTADO POR CRUCE' : (item.obs || '');
+      if (isCruce) cruceUnits += takeQty;
+
+      outRows.push([
+        segRow, tempRow, 2, grupo, cat, act, refCompra, 'TIENDAS',
+        idCanalTemp, idCanalTemp, item.codigo, item.tallaSap, idCodTalla, sapCode, eanCode,
+        color, item.tallaSap, item.itemSize, '', desc, gen, '',
+        fEntrega, '', takeQty, fobIni, pvpIni, p4Ini, pmyIni, pvpFin, p4Fin, pmyFin,
+        E10, '-', '', '', '', fEstIni, fRealIni, fEstFin, '',
+        item.invoices, item.invoiceDate, item.fobMarca, embName, obsVal
+      ]);
+    };
+
+    for (let i = 0; i < candidates.length && rem > 0; i++) {
+      const cand = candidates[i];
+      const take = Math.min(cand.rem, rem);
+      cand.rem -= take;
+      rem -= take;
+      pushFormattedRow(cand.src, take, !cand.isTiendaOrig);
+    }
+    if (rem > 0) {
+      pushFormattedRow(null, rem, true);
+    }
+  }
+
+  return { rows: outRows, cruceUnits };
+}
+
+function exportIngresosTiendasExcel(rows, seqNum, monthName) {
+  if (!rows || !rows.length) return modal('Sin datos', 'No hay registros de TIENDAS para exportar.');
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([INGRESOS_TIENDAS_HEADERS, ...rows]), 'Hoja1');
+  const fname = `INGRESOS TIENDAS CONSOLIDADO ${seqNum} ${monthName.toUpperCase()}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+async function processDepcoConsolidatedOc(file) {
+  try {
+    busy('Analizando OC (LPN) - CONSOLIDADO de Producto…');
+    await tick();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+    // Buscar la hoja principal que contiene LPN ID e INSTRUCCIÓN
+    let targetSheet = wb.Sheets['Hoja1'] ? 'Hoja1' : wb.SheetNames[0];
+    for (const sName of wb.SheetNames) {
+      const testAoa = XLSX.utils.sheet_to_json(wb.Sheets[sName], { header: 1, nrows: 3 });
+      if (testAoa.length && testAoa[0].some(c => norm(c) === 'lpnid' || norm(c) === 'instruccion')) {
+        targetSheet = sName;
+        break;
+      }
+    }
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[targetSheet], { defval: '', raw: true });
+    if (!raw.length) throw new Error('No se encontraron filas en la OC Consolidada.');
+
+    const parsePrice = v => Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0;
+    const sizeLookup = buildTallaSapLookup();
+    const { tplBySeason, globalTplItems } = getBrandTplCatalogMap('Adidas');
+    const allAdidasRows = await getAllBrandRows('Adidas');
+
+    const parsedItems = [];
+    let importUnits = 0;
+    let depcoUnits = 0;
+    let tiendasUnits = 0;
+    const canalFinalSummary = {};
+    let detectedEmb = '';
+    let latestInvDate = '';
+
+    for (const o of raw) {
+      const codigo = String(getRowVal(o, ['Item Description', 'Código', 'Codigo', 'Material']) ?? '').trim();
+      const qty = parsePrice(getRowVal(o, ['LPN Detail Size Value', 'Cantidad', 'QTY', 'Delivery quantity']));
+      if (!codigo || qty <= 0) continue;
+
+      const lpnId = normalizePtId(getRowVal(o, ['LPN ID', 'Carton Nr.', 'LPN']));
+      const itemSize = String(getRowVal(o, ['Item Size', 'Grid Value', 'Talla marca']) ?? '').trim();
+      const explicitSap = String(getRowVal(o, ['TALLA SAP', 'Talla SAP', 'Talla']) ?? '').trim();
+      const grupo = String(getRowVal(o, ['GRUPO', 'Grupo']) ?? '').trim();
+      const tallaSap = resolveTallaSapFromGrid(itemSize, explicitSap, sizeLookup, [], { brand: 'Adidas', material: codigo, grupo });
+
+      const instrRaw = String(getRowVal(o, ['INSTRUCCIÓN', 'INSTRUCCION', 'Instrucción']) ?? '').trim().toUpperCase();
+      const canalFinalRaw = normalizarCanal(getRowVal(o, ['CANAL FINAL', 'Canal Final', 'CANAL']));
+      const isNoImportar = instrRaw.includes('NO IMPORTAR') || canalFinalRaw === 'DEPCO';
+      const instruccion = isNoImportar ? 'NO IMPORTAR' : 'IMPORTAR';
+      const canalFinal = isNoImportar ? 'DEPCO' : (canalFinalRaw || normalizarCanal(getRowVal(o, ['CANAL FACTURA'])));
+
+      const emb = String(getRowVal(o, ['EMBARQUE', 'Embarque']) ?? '').trim() || 'CONSOLIDADO DEPCO';
+      if (!detectedEmb && emb) detectedEmb = emb;
+      const invDate = fdate(getRowVal(o, ['Invoice Date', 'Fecha de factura']));
+      if (invDate && invDate > latestInvDate) latestInvDate = invDate;
+
+      const item = {
+        lpnId,
+        codigo,
+        codNorm: norm(codigo),
+        marca: String(getRowVal(o, ['MARCA', 'Marca']) ?? 'ADIDAS').trim(),
+        linea: String(getRowVal(o, ['LINEA', 'Línea']) ?? '').trim(),
+        grupo,
+        categoria: String(getRowVal(o, ['CATEGORIA', 'Categoría']) ?? '').trim(),
+        actividad: String(getRowVal(o, ['ACTIVIDAD', 'Actividad']) ?? '').trim(),
+        descripcion: String(getRowVal(o, ['DESCRIPCION', 'Descripción']) ?? '').trim(),
+        genero: String(getRowVal(o, ['GENERO', 'Género']) ?? '').trim(),
+        fobMarca: parsePrice(getRowVal(o, ['FOB MARCA', 'FOB', 'Net price'])),
+        pvp: parsePrice(getRowVal(o, ['PVP'])),
+        p4: parsePrice(getRowVal(o, ['P4'])),
+        pmy: parsePrice(getRowVal(o, ['PMY'])),
+        pvpFinal: parsePrice(getRowVal(o, ['PVP FINAL', 'PVP Final'])),
+        p4Final: parsePrice(getRowVal(o, ['P4.1', 'P4 FINAL', 'P4 Final'])),
+        pmyFinal: parsePrice(getRowVal(o, ['PMY.1', 'PMY FINAL', 'PMY Final'])),
+        itemSize,
+        qty,
+        tallaSap,
+        sap: String(getRowVal(o, ['SAP']) ?? '').trim(),
+        ean: String(getRowVal(o, ['EAN', 'Item Bar Code']) ?? '').trim(),
+        orderId: normalizePtId(getRowVal(o, ['Order ID', 'Delivery'])),
+        invoiceDate: invDate,
+        invoices: String(getRowVal(o, ['Invoices', 'Factura']) ?? '').trim(),
+        canalFactura: normalizarCanal(getRowVal(o, ['CANAL FACTURA'])),
+        instruccion,
+        canalFinal,
+        obs: String(getRowVal(o, ['OBS']) ?? '').trim(),
+        embarque: emb,
+        cm: String(getRowVal(o, ['CM']) ?? '').trim(),
+        microsite: String(getRowVal(o, ['MICROSITE']) ?? '').trim()
+      };
+
+      parsedItems.push(item);
+      if (isNoImportar) {
+        depcoUnits += qty;
+      } else {
+        importUnits += qty;
+        canalFinalSummary[canalFinal] = (canalFinalSummary[canalFinal] || 0) + qty;
+        if (canalFinal === 'TIENDAS') tiendasUnits += qty;
+      }
+    }
+
+    if (!parsedItems.length) throw new Error('No se encontraron líneas válidas en la OC Consolidada.');
+
+    // Construir previsualización de INGRESOS TIENDAS CONSOLIDADO
+    const tiendasItems = parsedItems.filter(x => x.instruccion === 'IMPORTAR' && x.canalFinal === 'TIENDAS');
+    const tiendasBuild = buildIngresosTiendasConsolidatedRows(tiendasItems, allAdidasRows, detectedEmb, sizeLookup, tplBySeason, globalTplItems);
+
+    // Calcular siguiente correlativo mensual automático para INGRESOS TIENDAS CONSOLIDADO
+    const refMonthIdx = latestInvDate ? parseInt(latestInvDate.split('-')[1], 10) : (new Date().getMonth() + 1);
+    const defaultMonthName = MESES_ES[(refMonthIdx >= 1 && refMonthIdx <= 12 ? refMonthIdx : 1) - 1].toUpperCase();
+    const existingSameMonth = (S.tiendasConsolHistory || []).filter(h => String(h.month || '').toUpperCase() === defaultMonthName);
+    const nextSeq = existingSameMonth.length + 1;
+
+    busy();
+    const canalBadges = Object.entries(canalFinalSummary)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, u]) => `<span class="inline-block bg-emerald-50 border border-emerald-200 text-emerald-950 px-2 py-0.5 rounded text-xs font-semibold mr-1.5 mb-1">${esc(c)}: ${fn(u)} unid.</span>`)
+      .join('');
+
+    const ch = await modal(
+      `Confirmar OC (LPN) - CONSOLIDADO · ${esc(detectedEmb)}`,
+      `<div class="space-y-3 text-slate-700">
+         <p>Se procesaron <b>${fn(parsedItems.length)} líneas de cartón (LPN)</b> del embarque <b>${esc(detectedEmb)}</b>:</p>
+         <div class="grid grid-cols-2 gap-2.5 text-xs">
+           <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950">
+             <div class="font-bold uppercase text-[11px] text-emerald-800">IMPORTAR → P24 (Nacionaliza)</div>
+             <div class="text-lg font-bold mt-0.5">${fn(importUnits)} unid.</div>
+             <div class="mt-1">${canalBadges || 'Sin unidades'}</div>
+           </div>
+           <div class="p-3 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-950">
+             <div class="font-bold uppercase text-[11px] text-indigo-800">NO IMPORTAR → Saldo DEPCO</div>
+             <div class="text-lg font-bold mt-0.5">${fn(depcoUnits)} unid.</div>
+             <div class="text-[11px] text-indigo-700 mt-1">Quedan en inventario <b>DEPCO</b> para nacionalizaciones futuras.</div>
+           </div>
+         </div>
+         ${tiendasItems.length > 0 ? `
+         <div class="p-3 rounded-lg bg-sky-50 border border-sky-200 text-sky-950 text-xs space-y-2">
+           <div class="font-bold flex items-center gap-1.5"><i data-lucide="store" class="w-4 h-4 text-sky-700"></i> Archivo automático: INGRESOS TIENDAS CONSOLIDADO</div>
+           <div>Se generarán <b>${fn(tiendasBuild.rows.length)} líneas</b> (<b>${fn(tiendasUnits)} unidades</b> de TIENDAS, incluyendo <b>${fn(tiendasBuild.cruceUnits)} unid.</b> marcadas como <code>IMPORTADO POR CRUCE</code>).</div>
+           <div class="grid grid-cols-2 gap-2 pt-1">
+             <div>
+               <label class="block text-[11px] font-semibold mb-0.5">Número Consolidado Mensual</label>
+               <input type="number" id="inpTiendasSeq" min="1" class="border rounded px-2 py-1 text-xs w-full bg-white font-bold" value="${nextSeq}">
+             </div>
+             <div>
+               <label class="block text-[11px] font-semibold mb-0.5">Mes del Consolidado</label>
+               <input type="text" id="inpTiendasMonth" class="border rounded px-2 py-1 text-xs w-full bg-white font-bold uppercase" value="${esc(defaultMonthName)}">
+             </div>
+           </div>
+         </div>` : ''}
+         <div>
+           <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de ingreso embarque (Para líneas IMPORTAR → P24)</label>
+           <input type="date" id="inpDepcoFechaIng" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white">
+         </div>
+       </div>`,
+      [['Cancelar', 'c'], ['Aplicar a Tracking y Generar Ingresos Tiendas', 'ok', 1]]
+    );
+    icons();
+    if (ch !== 'ok') return;
+
+    const seqNum = Number($('inpTiendasSeq') ? $('inpTiendasSeq').value : nextSeq) || nextSeq;
+    const monthLabel = ($('inpTiendasMonth') ? $('inpTiendasMonth').value.trim().toUpperCase() : defaultMonthName) || defaultMonthName;
+    const fechaIngreso = $('inpDepcoFechaIng') ? $('inpDepcoFechaIng').value.trim() : '';
+
+    busy('Actualizando Tracking (P24 + DEPCO) y preparando Ingresos Tiendas…');
+    await tick();
+
+    // Indexar filas 10A de Adidas por Código + Talla
+    const pool10AByCod = new Map();
+    for (const r of allAdidasRows) {
+      if (st(r) === 'o' && Number(r['Cantidad'] || 0) > 0) {
+        const c = norm(r['Código']);
+        if (!pool10AByCod.has(c)) pool10AByCod.set(c, []);
+        pool10AByCod.get(c).push(r);
+      }
+    }
+
+    const changed = new Set();
+    const added = [];
+    const affectedSeasons = new Set();
+
+    // Agrupar items por Código + Talla + Instrucción + Canal Final + Factura + Embarque para impacto limpio en base maestra
+    const groupedImpact = new Map();
+    for (const it of parsedItems) {
+      const gKey = `${it.codNorm}|${normTalla(it.tallaSap)}|${it.instruccion}|${it.canalFinal}|${it.invoices}|${it.embarque}`;
+      if (!groupedImpact.has(gKey)) {
+        groupedImpact.set(gKey, { ...it, lpnIds: new Set(it.lpnId ? [it.lpnId] : []) });
+      } else {
+        const g = groupedImpact.get(gKey);
+        g.qty += it.qty;
+        if (it.lpnId) g.lpnIds.add(it.lpnId);
+      }
+    }
+
+    for (const grp of groupedImpact.values()) {
+      const talNorm = normTalla(grp.tallaSap);
+      const gridNorm = normTalla(grp.itemSize);
+      const targetStage = grp.instruccion === 'NO IMPORTAR' ? EDEPCO : EP;
+      const targetRegimen = grp.instruccion === 'NO IMPORTAR' ? 'DEPCO' : 'CONSOLIDADO / DEPCO';
+      const lpnJoined = [...grp.lpnIds].slice(0, 5).join(', ') + (grp.lpnIds.size > 5 ? ` (+${grp.lpnIds.size - 5})` : '');
+
+      const candidates = (pool10AByCod.get(grp.codNorm) || []).filter(r => {
+        if (st(r) !== 'o' || Number(r['Cantidad'] || 0) <= 0) return false;
+        const rTal = normTalla(r['Talla']);
+        const rTalM = normTalla(r['Talla marca']);
+        return rTal === talNorm || (gridNorm && rTalM === gridNorm) || rTal === gridNorm;
+      });
+
+      // Priorizar filas cuyo Canal Inicial coincida con CANAL FACTURA o CANAL FINAL
+      candidates.sort((a, b) => {
+        const ca = normalizeStoreChannelForLpn(a['Canal Inicial'] || a['Referencia compra'], 'Adidas');
+        const cb = normalizeStoreChannelForLpn(b['Canal Inicial'] || b['Referencia compra'], 'Adidas');
+        const sa = (ca === grp.canalFactura ? 20 : 0) + (ca === grp.canalFinal ? 10 : 0);
+        const sb = (cb === grp.canalFactura ? 20 : 0) + (cb === grp.canalFinal ? 10 : 0);
+        return sb - sa;
+      });
+
+      const applyDecisionToRow = targetRow => {
+        targetRow['Etapa'] = targetStage;
+        targetRow['Régimen'] = targetRegimen;
+        if (lpnJoined) targetRow['LPN ID'] = lpnJoined;
+        if (grp.invoices) targetRow['Factura'] = grp.invoices;
+        if (grp.orderId) targetRow['Delivery'] = grp.orderId;
+        if (grp.invoiceDate) targetRow['Fecha de factura'] = grp.invoiceDate;
+        targetRow['EMBARQUE'] = grp.embarque;
+        if (grp.instruccion === 'IMPORTAR' && fechaIngreso) {
+          targetRow['Fecha de ingreso embarque'] = fechaIngreso;
+        }
+        targetRow['Canal Final'] = grp.canalFinal;
+        if (grp.fobMarca > 0) targetRow['FOB'] = grp.fobMarca;
+        if (grp.pvpFinal > 0) targetRow['PVP Final'] = grp.pvpFinal;
+        if (grp.p4Final > 0) targetRow['P4 Final'] = grp.p4Final;
+        if (grp.pmyFinal > 0) targetRow['PMY Final'] = grp.pmyFinal;
+        if (grp.obs) targetRow['OBS'] = grp.obs;
+        targetRow['Valor Neto'] = calcValorNeto(targetRow);
+      };
+
+      let rem = grp.qty;
+      for (let i = 0; i < candidates.length && rem > 0; i++) {
+        const baseRow = candidates[i];
+        const avail = Number(baseRow['Cantidad'] || 0);
+        if (avail <= 0 || st(baseRow) !== 'o') continue;
+        affectedSeasons.add(baseRow.season || S.season);
+
+        if (avail <= rem) {
+          rem -= avail;
+          applyDecisionToRow(baseRow);
+          changed.add(baseRow);
+        } else {
+          const splitRow = { ...baseRow };
+          delete splitRow.id;
+          splitRow['Cantidad'] = rem;
+          applyDecisionToRow(splitRow);
+          baseRow['Cantidad'] = avail - rem;
+          baseRow['Valor Neto'] = calcValorNeto(baseRow);
+          rem = 0;
+          changed.add(baseRow);
+          added.push(splitRow);
+        }
+      }
+
+      // Si hubo excedente sin saldo 10A previo, registrarlo directamente en DEPCO o P24 para no perder trazabilidad del embarque
+      if (rem > 0) {
+        const seasonTpl = tplBySeason[norm(S.season)] || globalTplItems;
+        const tplItem = seasonTpl ? seasonTpl[grp.codNorm] : null;
+        const newRow = {
+          'Seguimiento': '',
+          'Detalle compra': 'COMPRA CANAL',
+          'Temporada': S.season,
+          'Marca': 'ADIDAS',
+          'Grupo': grp.grupo || (tplItem && tplItem.grupo) || '',
+          'Categoría': grp.categoria || (tplItem && tplItem.categoria) || '',
+          'Actividad': grp.actividad || (tplItem && tplItem.actividad) || '',
+          'Línea': grp.linea || (tplItem && tplItem.linea) || '',
+          'Referencia compra': grp.canalFactura || 'TIENDAS',
+          'Canal Inicial': grp.canalFactura || 'TIENDAS',
+          'Canal Final': grp.canalFinal,
+          'Código': grp.codigo,
+          'Color': (tplItem && tplItem.color) || '',
+          'Talla': grp.tallaSap,
+          'Talla marca': grp.itemSize,
+          'Descripción': grp.descripcion || (tplItem && tplItem.descripcion) || '',
+          'Género': grp.genero || (tplItem && tplItem.genero) || '',
+          'Fecha de entrega': (tplItem && tplItem.fEntrega) || '',
+          'Fecha de venta': (tplItem && tplItem.fVenta) || '',
+          'Cantidad': rem,
+          'FOB': grp.fobMarca,
+          'Valor Neto': Math.round(grp.fobMarca * rem * 10000) / 10000,
+          'PVP': grp.pvp,
+          'PVP Final': grp.pvpFinal,
+          'PVP retail': (tplItem && tplItem.pvpRetail) || 0,
+          'P4': grp.p4,
+          'P4 Final': grp.p4Final,
+          'PMY': grp.pmy,
+          'PMY Final': grp.pmyFinal,
+          'Etapa': targetStage,
+          'Régimen': targetRegimen,
+          'LPN ID': lpnJoined,
+          'Documento': '',
+          'EMBARQUE': grp.embarque,
+          'Fecha estimada inicio': '',
+          'Fecha real inicio': '',
+          'Fecha estimada fin': '',
+          'Fecha real fin': '',
+          'Factura': grp.invoices,
+          'Delivery': grp.orderId,
+          'Fecha de factura': grp.invoiceDate,
+          'Fecha de ingreso embarque': grp.instruccion === 'IMPORTAR' ? fechaIngreso : '',
+          'OBS': grp.obs || 'SIN SALDO 10A PREVIO',
+          sb: 'Adidas|' + S.season,
+          brand: 'Adidas',
+          season: S.season
+        };
+        added.push(newRow);
+        affectedSeasons.add(S.season);
+      }
+    }
+
+    // Guardar historial de LPN DEPCO (para la pestaña Inventario DEPCO)
+    const depcoOnlyItems = parsedItems.filter(x => x.instruccion === 'NO IMPORTAR');
+    if (depcoOnlyItems.length > 0) {
+      S.depcoLpnHistory = (S.depcoLpnHistory || []).filter(h => h.embarque !== detectedEmb);
+      S.depcoLpnHistory.unshift({
+        id: 'DEPCO_' + Date.now(),
+        embarque: detectedEmb,
+        uploadedAt: new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }),
+        fileName: file ? file.name : '',
+        items: depcoOnlyItems.map(it => ({
+          ...it,
+          statusDepco: 'EN DEPCO',
+          nacionalizadoQty: 0
+        }))
+      });
+    }
+
+    // Guardar historial de INGRESOS TIENDAS CONSOLIDADO
+    if (tiendasBuild.rows.length > 0) {
+      S.tiendasConsolHistory = S.tiendasConsolHistory || [];
+      S.tiendasConsolHistory.unshift({
+        id: 'TCON_' + Date.now(),
+        seq: seqNum,
+        month: monthLabel,
+        embarque: detectedEmb,
+        createdAt: new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }),
+        totalUnits: tiendasUnits,
+        cruceUnits: tiendasBuild.cruceUnits,
+        rows: tiendasBuild.rows
+      });
+    }
+
+    if (changed.size) await dbPut([...changed]);
+    if (added.length) await dbAdd(added);
+    await saveMeta();
+    await reload();
+    busy();
+
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      await pushCloudConfig();
+      for (const sName of affectedSeasons) {
+        await pushCloudBuySeason('Adidas', sName, true);
+      }
+    }
+
+    // Descargar automáticamente INGRESOS TIENDAS CONSOLIDADO si existen unidades de TIENDAS
+    if (tiendasBuild.rows.length > 0) {
+      exportIngresosTiendasExcel(tiendasBuild.rows, seqNum, monthLabel);
+    }
+
+    modal(
+      'OC Consolidada DEPCO Procesada',
+      `<div class="space-y-2.5 text-slate-700">
+         <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs space-y-1">
+           <div>✓ <b>Importado a P24:</b> ${fn(importUnits)} unidades nacionalizadas con sus canales y precios finales.</div>
+           <div>✓ <b>Inventario DEPCO:</b> ${fn(depcoUnits)} unidades registradas en régimen <b>DEPCO</b> (disponibles en la pestaña <b>Inventario DEPCO</b>).</div>
+         </div>
+         ${tiendasBuild.rows.length > 0 ? `
+         <div class="p-3 rounded-lg bg-sky-50 border border-sky-200 text-sky-950 text-xs">
+           📥 Se descargó automáticamente <b>INGRESOS TIENDAS CONSOLIDADO ${seqNum} ${esc(monthLabel)}.xlsx</b> con <b>${fn(tiendasUnits)} unidades</b> (${fn(tiendasBuild.rows.length)} filas) listo para distribución de Tiendas.
+         </div>` : ''}
+       </div>`
+    );
+  } catch (e) {
+    busy();
+    modal('Error al procesar OC Consolidada DEPCO', esc(e.message || e));
+  }
+}
+
+/* ============ NACIONALIZACIÓN PARCIAL DESDE INVENTARIO DEPCO (DEPCO → P24 + INGRESOS TIENDAS) ============ */
+async function nacionalizarDesdeDepco(selectedIds, embarqueFilter = '') {
+  const hist = S.depcoLpnHistory || [];
+  const targets = [];
+  for (const batch of hist) {
+    for (let idx = 0; idx < batch.items.length; idx++) {
+      const it = batch.items[idx];
+      const uid = `${batch.id}::${idx}`;
+      if (selectedIds.has(uid) && it.statusDepco !== 'NACIONALIZADO') {
+        targets.push({ batch, it, uid });
+      }
+    }
+  }
+  if (!targets.length) return modal('Sin selección', 'Selecciona al menos una línea o cartón (LPN) pendiente en DEPCO para nacionalizar.');
+
+  const totalUnits = targets.reduce((a, x) => a + Number(x.it.qty || 0), 0);
+  const channels = ['TIENDAS', 'MARATHON', 'OUTLET', 'TAF', 'WEB', 'EXPLORER', 'TELESHOP', 'MAYORISTA', 'TRANS'];
+  const ch = await modal(
+    'Nacionalizar Parcial desde DEPCO → P24',
+    `<div class="space-y-3 text-slate-700">
+       <p>Vas a nacionalizar <b>${fn(targets.length)} líneas de cartón (LPN)</b> (<b>${fn(totalUnits)} unidades</b>) que estaban almacenadas en <b>DEPCO</b>.</p>
+       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+         <div>
+           <label class="block text-xs font-semibold text-slate-700 mb-1">Canal Final de Destino</label>
+           <select id="selDepcoNacCanal" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white font-semibold">
+             <option value="__ORIGINAL__">Mantener Canal Factura original</option>
+             ${channels.map(c => `<option value="${c}">${c}</option>`).join('')}
+           </select>
+         </div>
+         <div>
+           <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de ingreso a CD</label>
+           <input type="date" id="inpDepcoNacFecha" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white" value="${new Date().toISOString().slice(0, 10)}">
+         </div>
+       </div>
+       <label class="flex items-center gap-2 text-xs cursor-pointer pt-1">
+         <input type="checkbox" id="chkDepcoGenTiendas" class="w-4 h-4 accent-sky-700" checked>
+         <span>Si el destino es <b>TIENDAS</b>, generar y descargar archivo <b>INGRESOS TIENDAS CONSOLIDADO</b> automáticamente</span>
+       </label>
+     </div>`,
+    [['Cancelar', 'c'], ['Nacionalizar a P24', 'ok', 1]]
+  );
+  if (ch !== 'ok') return;
+
+  const chosenCanal = $('selDepcoNacCanal') ? $('selDepcoNacCanal').value : '__ORIGINAL__';
+  const fechaNac = $('inpDepcoNacFecha') ? $('inpDepcoNacFecha').value.trim() : '';
+  const genTiendas = $('chkDepcoGenTiendas') ? $('chkDepcoGenTiendas').checked : true;
+
+  busy('Nacionalizando parcial desde DEPCO a P24…');
+  await tick();
+
+  const allAdidasRows = await getAllBrandRows('Adidas');
+  const depcoRows = allAdidasRows.filter(r => st(r) === 'dep' && Number(r['Cantidad'] || 0) > 0);
+  const changed = new Set();
+  const added = [];
+  const affectedSeasons = new Set();
+  const tiendasItemsForExport = [];
+  let embNameForExport = embarqueFilter || (targets[0] && targets[0].it.embarque) || 'DEPCO PARCIAL';
+
+  for (const { it } of targets) {
+    const finalDest = chosenCanal === '__ORIGINAL__' ? (it.canalFactura || 'TIENDAS') : chosenCanal;
+    it.statusDepco = 'NACIONALIZADO';
+    it.canalFinal = finalDest;
+    it.nacionalizadoFecha = fechaNac;
+
+    if (finalDest === 'TIENDAS') {
+      tiendasItemsForExport.push({ ...it, canalFinal: 'TIENDAS' });
+    }
+
+    const codNorm = norm(it.codigo);
+    const talNorm = normTalla(it.tallaSap);
+    const embNorm = norm(it.embarque);
+    const matchingDepco = depcoRows.filter(r =>
+      st(r) === 'dep' &&
+      Number(r['Cantidad'] || 0) > 0 &&
+      norm(r['Código']) === codNorm &&
+      normTalla(r['Talla']) === talNorm &&
+      (!embNorm || norm(r['EMBARQUE']) === embNorm)
+    );
+
+    let rem = Number(it.qty || 0);
+    for (let i = 0; i < matchingDepco.length && rem > 0; i++) {
+      const baseRow = matchingDepco[i];
+      const avail = Number(baseRow['Cantidad'] || 0);
+      affectedSeasons.add(baseRow.season || S.season);
+
+      if (avail <= rem) {
+        rem -= avail;
+        baseRow['Etapa'] = EP;
+        baseRow['Régimen'] = 'DEPCO PARCIAL';
+        baseRow['Canal Final'] = finalDest;
+        if (fechaNac) baseRow['Fecha de ingreso embarque'] = fechaNac;
+        baseRow['OBS'] = `NACIONALIZADO DE DEPCO (${it.lpnId || ''})`.trim();
+        changed.add(baseRow);
+      } else {
+        const splitRow = { ...baseRow };
+        delete splitRow.id;
+        splitRow['Cantidad'] = rem;
+        splitRow['Etapa'] = EP;
+        splitRow['Régimen'] = 'DEPCO PARCIAL';
+        splitRow['Canal Final'] = finalDest;
+        if (fechaNac) splitRow['Fecha de ingreso embarque'] = fechaNac;
+        splitRow['OBS'] = `NACIONALIZADO DE DEPCO (${it.lpnId || ''})`.trim();
+        splitRow['Valor Neto'] = calcValorNeto(splitRow);
+
+        baseRow['Cantidad'] = avail - rem;
+        baseRow['Valor Neto'] = calcValorNeto(baseRow);
+        rem = 0;
+        changed.add(baseRow);
+        added.push(splitRow);
+      }
+    }
+  }
+
+  let tiendasExportedCount = 0;
+  if (genTiendas && tiendasItemsForExport.length > 0) {
+    const sizeLookup = buildTallaSapLookup();
+    const { tplBySeason, globalTplItems } = getBrandTplCatalogMap('Adidas');
+    const refreshedAdidas = await getAllBrandRows('Adidas');
+    const buildRes = buildIngresosTiendasConsolidatedRows(tiendasItemsForExport, refreshedAdidas, embNameForExport, sizeLookup, tplBySeason, globalTplItems);
+    const monthIdx = fechaNac ? parseInt(fechaNac.split('-')[1], 10) : (new Date().getMonth() + 1);
+    const mName = MESES_ES[(monthIdx >= 1 && monthIdx <= 12 ? monthIdx : 1) - 1].toUpperCase();
+    const nextSeq = (S.tiendasConsolHistory || []).filter(h => String(h.month || '').toUpperCase() === mName).length + 1;
+    const tUnits = tiendasItemsForExport.reduce((a, x) => a + Number(x.qty || 0), 0);
+    S.tiendasConsolHistory = S.tiendasConsolHistory || [];
+    S.tiendasConsolHistory.unshift({
+      id: 'TCON_' + Date.now(),
+      seq: nextSeq,
+      month: mName,
+      embarque: embNameForExport,
+      createdAt: new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }),
+      totalUnits: tUnits,
+      cruceUnits: buildRes.cruceUnits,
+      rows: buildRes.rows
+    });
+    tiendasExportedCount = tUnits;
+    exportIngresosTiendasExcel(buildRes.rows, nextSeq, mName);
+  }
+
+  if (changed.size) await dbPut([...changed]);
+  if (added.length) await dbAdd(added);
+  await saveMeta();
+  await reload();
+  busy();
+
+  if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+    await pushCloudConfig();
+    for (const sName of affectedSeasons) {
+      await pushCloudBuySeason('Adidas', sName, true);
+    }
+  }
+
+  modal(
+    'Nacionalización DEPCO Completada',
+    `Se pasaron <b>${fn(totalUnits)} unidades</b> desde <b>DEPCO</b> a <b>P24</b>.${tiendasExportedCount > 0 ? `<br><br>📥 Se descargó automáticamente el archivo <b>INGRESOS TIENDAS CONSOLIDADO</b> por <b>${fn(tiendasExportedCount)} unidades</b>.` : ''}`
+  );
+}
+
 /* ============ MOTOR UNIFICADO DE FACTURACIÓN (ADIDAS Y REEBOK) ============ */
 async function processBrandBilling(file, ptsFile = null) {
   const isReebok = String(S.brand).toUpperCase().includes('REEBOK');
@@ -4142,29 +5114,38 @@ function renderSide() {
   $('side').innerHTML = Object.keys(S.seasons).map(b => {
     const customImg = S.logos[b];
     const logoHtml = customImg
-      ? `<img src="${customImg}" alt="${esc(b)}" class="h-10 max-w-[140px] object-contain">`
-      : (DEFAULT_LOGOS[b] || '');
+      ? `<img src="${customImg}" alt="${esc(b)}" class="h-8 max-w-[125px] object-contain brightness-0 invert opacity-90">`
+      : (DEFAULT_LOGOS[b] ? DEFAULT_LOGOS[b].replace('class="h-11', 'class="h-8 brightness-0 invert opacity-90').replace('class="h-10', 'class="h-7 brightness-0 invert opacity-90') : '');
+    const isBrandActive = S.brand === b;
     return `
-    <div class="mb-4 pb-2 border-b border-white/5 last:border-b-0">
-      <div class="px-5 pt-3 pb-1 flex items-center justify-between gap-2">
-        <span class="text-sm font-semibold text-white tracking-wide">${b}</span>
-        <button type="button" onclick="triggerLogoUpload('${b}')" title="Subir imagen PNG de ${b}" class="inline-flex items-center gap-1 text-[11px] font-medium text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 px-2 py-0.5 rounded transition cursor-pointer">
-          <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+    <div class="rounded-xl p-2.5 transition ${isBrandActive ? 'bg-white/[0.05] border border-white/[0.08]' : 'border border-transparent'}">
+      <div class="px-2 pt-0.5 pb-2 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          ${logoHtml || `<span class="text-xs font-extrabold uppercase tracking-wider text-white">${esc(b)}</span>`}
+        </div>
+        <button type="button" onclick="triggerLogoUpload('${b}')" title="Cambiar logo de ${b}" class="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 hover:text-white bg-white/[0.06] hover:bg-white/[0.14] px-2 py-0.5 rounded-md transition cursor-pointer">
+          <svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
           <span>Logo</span>
         </button>
       </div>
-      ${logoHtml ? `<div class="px-5 py-2 flex items-center justify-start">${logoHtml}</div>` : ''}
-      ${S.seasons[b].map(s => {
-        const on = S.brand === b && S.season === s;
-        return `<div class="group flex items-center mx-2 rounded ${on ? 'bg-white/15 text-white' : 'hover:bg-white/5'}">
-          <button class="flex-1 flex justify-between items-center px-3 py-1.5 text-sm" onclick="pick('${b}','${s}')">
-            <span><i data-lucide="folder" class="inline w-4 h-4 mr-1.5 -mt-0.5"></i>${esc(s)}</span>
-            <span class="text-xs num text-slate-400">${fn(S.counts[b + '|' + s])}</span>
-          </button>
-        </div>`;
-      }).join('')}
-      <button class="mx-2 mt-1 px-3 py-1.5 text-sm text-slate-400 hover:text-white" onclick="newSeason('${b}')">
-        <i data-lucide="plus" class="inline w-4 h-4 -mt-0.5"></i> Nueva Temporada
+      <div class="space-y-0.5">
+        ${S.seasons[b].map(s => {
+          const on = S.brand === b && S.season === s;
+          const cnt = S.counts[b + '|' + s] || 0;
+          return `<div class="group flex items-center rounded-lg transition ${on ? 'bg-[#d92d20] text-white shadow-sm' : 'text-slate-300 hover:bg-white/[0.07] hover:text-white'}">
+            <button class="flex-1 flex justify-between items-center px-2.5 py-1.5 text-[13px] font-medium" onclick="pick('${b}','${s}')">
+              <span class="flex items-center gap-2">
+                <i data-lucide="${on ? 'folder-open' : 'folder'}" class="w-3.5 h-3.5 ${on ? 'text-white' : 'text-slate-400'}"></i>
+                <span class="${on ? 'font-bold' : ''}">${esc(s)}</span>
+              </span>
+              <span class="text-[11px] font-mono px-1.5 py-0.2 rounded ${on ? 'bg-black/20 text-white font-semibold' : 'text-slate-400'}">${fn(cnt)}</span>
+            </button>
+          </div>`;
+        }).join('')}
+      </div>
+      <button class="w-full mt-1.5 px-2.5 py-1.5 text-left text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] rounded-lg transition flex items-center gap-1.5" onclick="newSeason('${b}')">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+        <span>Agregar temporada</span>
       </button>
     </div>
   `}).join('');
@@ -4219,26 +5200,43 @@ function renderMain() {
   const tplCount = Object.keys(getTplData(sbKey()).items).length;
   const sizeCount = S.sizePairs.length;
   const sapBrandCount = Object.keys(S.sapCatalog || {}).filter(k => k.startsWith(S.brand + '|')).length;
+  const depcoUnitsCount = S.rows.filter(r => st(r) === 'dep').reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
+  const depcoBadge = depcoUnitsCount > 0
+    ? `<span class="ml-1.5 px-1.5 py-0.2 text-[11px] font-bold rounded-full bg-indigo-100 text-indigo-800 border border-indigo-300">${fn(depcoUnitsCount)}</span>`
+    : '';
   const mastersTotal = (tplCount > 0 ? 1 : 0) + (sizeCount > 0 ? 1 : 0) + (sapBrandCount > 0 ? 1 : 0);
 
   const tabs = [
     ['dash', 'Resumen', 'layout-dashboard', ''],
+    ['sku', 'Trazabilidad SKU', 'route', ''],
     ['corp', 'Ingresos por Mes', 'calendar-range', ''],
     ['mx', 'Matriz de seguimiento', 'table', ''],
+    ['depco', 'Inventario DEPCO', 'warehouse', depcoBadge],
     ['billing', 'Detalle Facturación', 'receipt', billBadge],
     ['prices', 'Alertas de Precio', 'tag', alertBadge],
     ['drop', 'Reporte de DROPS', 'ban', '']
   ];
+  const brandAccentBadge = S.brand === 'Adidas'
+    ? 'bg-slate-900 text-white'
+    : 'bg-[#d92d20] text-white';
+
   m.innerHTML = `
-    <header class="bg-white border-b px-6 pt-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div class="flex flex-wrap items-center justify-between gap-3 pb-3">
-        <div class="flex items-center gap-3 min-w-0">
+    <header class="bg-white border-b border-slate-200/90 px-6 pt-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5">
+        <div class="flex items-center gap-3.5 min-w-0">
+          <div class="w-10 h-10 rounded-xl ${brandAccentBadge} flex items-center justify-center font-extrabold text-sm tracking-tight shadow-xs shrink-0">
+            ${esc(S.brand.slice(0, 3).toUpperCase())}
+          </div>
           <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-xl font-bold tracking-tight text-slate-900">${S.brand} ${esc(S.season)}</h1>
-              <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">${fn(S.rows.length)} registros</span>
+            <div class="flex items-center gap-2.5">
+              <h1 class="text-[20px] font-extrabold tracking-tight text-slate-900 leading-none">${esc(S.brand)} <span class="text-slate-400 font-normal">/</span> ${esc(S.season)}</h1>
+              <span class="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/80">${fn(S.rows.length)} líneas</span>
             </div>
-            <p class="text-xs text-slate-500 mt-0.5">Tracking de compras, facturación y embarques · Guardado local${S.cloud.connected ? ' + OneDrive' : ''}</p>
+            <p class="text-xs text-slate-500 mt-1 flex items-center gap-2">
+              <span>Sistema de Tracking - KSM · Compra, Facturación y Embarques</span>
+              <span class="text-slate-300">•</span>
+              <span class="font-medium ${S.cloud.connected ? 'text-sky-700' : 'text-emerald-700'}">${S.cloud.connected ? 'Sincronizado con OneDrive' : 'Almacenamiento Local Activo'}</span>
+            </p>
           </div>
         </div>
 
@@ -4387,31 +5385,45 @@ function renderMain() {
       </div>
 
       <!-- Pestañas de Navegación -->
-      <div class="flex gap-1 overflow-x-auto">
-        ${tabs.map(t => `<button class="tab whitespace-nowrap ${S.tab === t[0] ? 'on' : ''}" onclick="S.tab='${t[0]}';S.page=1;render()"><i data-lucide="${t[2]}" class="inline w-4 h-4 mr-1.5 -mt-0.5"></i>${t[1]}${t[3]}</button>`).join('')}
+      <div class="nav-strip overflow-x-auto">
+        ${tabs.map(t => `<button class="tab whitespace-nowrap ${S.tab === t[0] ? 'on' : ''}" onclick="S.tab='${t[0]}';S.page=1;render()"><i data-lucide="${t[2]}" class="w-4 h-4 shrink-0 ${S.tab === t[0] ? 'text-[#d92d20]' : 'text-slate-400'}"></i><span>${t[1]}</span>${t[3]}</button>`).join('')}
       </div>
     </header>
     <section class="flex-1 min-h-0 overflow-y-auto p-6" id="view"></section>
   `;
-  ({ dash: vDash, corp: vCorp, mx: vMx, billing: vBilling, prices: vPrices, drop: vDrop })[S.tab]();
+  ({ dash: vDash, sku: vSkuTrace, corp: vCorp, mx: vMx, depco: vDepco, billing: vBilling, prices: vPrices, drop: vDrop })[S.tab]();
 }
 function kpi(l, v, sub, c, moneyVal) {
+  let dotColor = 'bg-slate-400';
+  if (c && c.includes('green')) dotColor = 'bg-emerald-500';
+  else if (c && c.includes('emerald')) dotColor = 'bg-emerald-500';
+  else if (c && c.includes('indigo')) dotColor = 'bg-indigo-600';
+  else if (c && c.includes('amber')) dotColor = 'bg-amber-500';
+  else if (c && c.includes('orange')) dotColor = 'bg-orange-500';
+  else if (c && c.includes('red')) dotColor = 'bg-rose-600';
+  else if (c && c.includes('sky')) dotColor = 'bg-sky-600';
+
   const moneyHtml = moneyVal !== undefined
-    ? `<div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-         <span class="text-slate-400 font-medium">FOB Neto:</span>
-         <span class="font-bold text-slate-800 num">${fmoney(moneyVal)}</span>
+    ? `<div class="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+         <span class="text-slate-400 font-medium">Valor FOB</span>
+         <span class="font-mono font-semibold text-slate-800 num">${fmoney(moneyVal)}</span>
        </div>`
     : '';
-  return `<div class="bg-white rounded-lg border p-4 ${c || ''}">
-    <div class="text-xs text-slate-500">${l}</div>
-    <div class="text-2xl font-semibold num !text-left mt-1">${v}</div>
-    <div class="text-xs text-slate-500 mt-0.5">${sub}</div>
+  return `<div class="kpi-card flex flex-col justify-between">
+    <div>
+      <div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+        <span class="w-2 h-2 rounded-full ${dotColor} shrink-0"></span>
+        <span class="truncate">${l}</span>
+      </div>
+      <div class="text-[26px] leading-tight font-extrabold tracking-tight text-slate-900 num !text-left mt-2">${v}</div>
+      <div class="text-xs text-slate-500 mt-1">${sub}</div>
+    </div>
     ${moneyHtml}
   </div>`;
 }
 function vDash() {
-  let t = 0, p = 0, o = 0, d = 0;
-  let fobT = 0, fobP = 0, fobO = 0, fobD = 0;
+  let t = 0, p = 0, dep = 0, o = 0, d = 0;
+  let fobT = 0, fobP = 0, fobDep = 0, fobO = 0, fobD = 0;
   let canalUnits = 0, extraUnits = 0, canalFob = 0, extraFob = 0;
   let priceAlerts = 0, priceAlertUnits = 0;
 
@@ -4422,6 +5434,7 @@ function vDash() {
     t += q;
     fobT += vn;
     if (k === 'p') { p += q; fobP += vn; }
+    else if (k === 'dep') { dep += q; fobDep += vn; }
     else if (k === 'd') { d += q; fobD += vn; }
     else { o += q; fobO += vn; }
 
@@ -4452,47 +5465,539 @@ function vDash() {
 
   $('view').innerHTML = `
     ${alertBanner}
-    <div class="grid gap-3 grid-cols-2 xl:grid-cols-5">
+    <div class="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       ${kpi('Unidades compradas', fn(t), 'Total temporada', '', fobT)}
-      ${kpi('Facturado / P24', fn(p), 'Unidades embarcadas', 'border-l-4 border-l-green-600', fobP)}
+      ${kpi('Nacionalizado / P24', fn(p), 'Unidades en CD / Tiendas', 'border-l-4 border-l-green-600', fobP)}
+      ${kpi('Saldo en DEPCO', fn(dep), 'Depósito aduanero activo', 'border-l-4 border-l-indigo-600', fobDep)}
       ${kpi('Saldo pendiente (10A)', fn(o), 'Presupuesto por facturar', 'border-l-4 border-l-amber-500', fobO)}
       ${kpi('Unidades en DROP', fn(d), 'Cancelado por marca', 'border-l-4 border-l-red-600', fobD)}
       ${kpi('Fill Rate (Unid. / FOB)', fr + '%', 'FOB Ejecutado: ' + frMoney + '%')}
     </div>
 
-    <div class="grid gap-4 md:grid-cols-2 mt-5">
-      <div class="bg-white rounded-lg border p-5">
-        <div class="text-sm font-medium mb-2">Distribución de unidades por etapa</div>
-        <div class="flex h-5 rounded overflow-hidden bg-slate-200">
-          <div style="width:${t ? p / t * 100 : 0}%;background:#2f9e5b"></div>
-          <div style="width:${t ? o / t * 100 : 0}%;background:#e9b13a"></div>
-          <div style="width:${t ? d / t * 100 : 0}%;background:#c44848"></div>
+    <div class="grid gap-4 lg:grid-cols-2 mt-5">
+      <div class="panel-card p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="text-sm font-bold text-slate-900">Distribución de Inventario por Etapa y Régimen</div>
+            <div class="text-xs text-slate-500">Proporción sobre ${fn(t)} unidades compradas</div>
+          </div>
+          <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">${fmoney(fobT)}</span>
         </div>
-        <div class="flex flex-wrap gap-5 text-xs text-slate-600 mt-2.5">
-          <span><b>P24:</b> ${fn(p)} unid. (${fmoney(fobP)})</span>
-          <span><b>10A:</b> ${fn(o)} unid. (${fmoney(fobO)})</span>
-          <span><b>DROP:</b> ${fn(d)} unid. (${fmoney(fobD)})</span>
+        <div class="flex h-3.5 rounded-full overflow-hidden bg-slate-100 p-0.5 border border-slate-200/70 gap-0.5">
+          <div class="rounded-l-full transition-all" style="width:${t ? p / t * 100 : 0}%;background:#16a34a" title="P24: ${fn(p)} unid."></div>
+          <div class="transition-all" style="width:${t ? dep / t * 100 : 0}%;background:#4f46e5" title="DEPCO: ${fn(dep)} unid."></div>
+          <div class="transition-all" style="width:${t ? o / t * 100 : 0}%;background:#f59e0b" title="10A: ${fn(o)} unid."></div>
+          <div class="rounded-r-full transition-all" style="width:${t ? d / t * 100 : 0}%;background:#dc2626" title="DROP: ${fn(d)} unid."></div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4">
+          <div class="p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200/70">
+            <div class="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-600"></span>P24</div>
+            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(p)}</div>
+            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobP)}</div>
+          </div>
+          <div class="p-2.5 rounded-lg bg-indigo-50/60 border border-indigo-200/70">
+            <div class="text-[11px] font-bold text-indigo-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-indigo-600"></span>DEPCO</div>
+            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(dep)}</div>
+            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobDep)}</div>
+          </div>
+          <div class="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/70">
+            <div class="text-[11px] font-bold text-amber-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span>10A</div>
+            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(o)}</div>
+            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobO)}</div>
+          </div>
+          <div class="p-2.5 rounded-lg bg-rose-50/60 border border-rose-200/70">
+            <div class="text-[11px] font-bold text-rose-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-rose-600"></span>DROP</div>
+            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(d)}</div>
+            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobD)}</div>
+          </div>
         </div>
       </div>
 
-      <div class="bg-white rounded-lg border p-5">
-        <div class="text-sm font-medium mb-2">Desglose por Detalle de Compra</div>
-        <div class="grid grid-cols-2 gap-3 mt-2">
-          <div class="p-3 rounded-lg bg-slate-50 border">
-            <div class="text-xs font-semibold text-indigo-900">COMPRA CANAL</div>
-            <div class="text-lg font-bold text-slate-800 mt-0.5 num !text-left">${fn(canalUnits)} <span class="text-xs font-normal text-slate-500">unid.</span></div>
-            <div class="text-xs font-semibold text-slate-600 mt-1">FOB Neto: ${fmoney(canalFob)}</div>
+      <div class="panel-card p-5 flex flex-col justify-between">
+        <div>
+          <div class="text-sm font-bold text-slate-900">Composición del Presupuesto de Compra</div>
+          <div class="text-xs text-slate-500 mt-0.5">Separación entre asignación inicial de canal y reposiciones extra</div>
+        </div>
+        <div class="grid grid-cols-2 gap-3.5 mt-4">
+          <div class="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">Compra Canal</span>
+              <span class="text-[11px] font-mono font-bold text-slate-500">${t ? (canalUnits / t * 100).toFixed(1) : '0.0'}%</span>
+            </div>
+            <div class="text-2xl font-extrabold text-slate-900 mt-1.5 num !text-left">${fn(canalUnits)} <span class="text-xs font-medium text-slate-400">unid.</span></div>
+            <div class="text-xs font-mono font-semibold text-slate-600 mt-1.5">${fmoney(canalFob)}</div>
           </div>
-          <div class="p-3 rounded-lg bg-slate-50 border">
-            <div class="text-xs font-semibold text-teal-800">COMPRA EXTRA</div>
-            <div class="text-lg font-bold text-slate-800 mt-0.5 num !text-left">${fn(extraUnits)} <span class="text-xs font-normal text-slate-500">unid.</span></div>
-            <div class="text-xs font-semibold text-slate-600 mt-1">FOB Neto: ${fmoney(extraFob)}</div>
+          <div class="p-4 rounded-xl bg-teal-50/50 border border-teal-200/70">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-extrabold uppercase tracking-wider text-teal-900">Compra Extra</span>
+              <span class="text-[11px] font-mono font-bold text-teal-700">${t ? (extraUnits / t * 100).toFixed(1) : '0.0'}%</span>
+            </div>
+            <div class="text-2xl font-extrabold text-slate-900 mt-1.5 num !text-left">${fn(extraUnits)} <span class="text-xs font-medium text-slate-400">unid.</span></div>
+            <div class="text-xs font-mono font-semibold text-teal-800 mt-1.5">${fmoney(extraFob)}</div>
           </div>
         </div>
       </div>
     </div>
   `;
   icons();
+}
+
+
+/* ============ VISTA DEDICADA: TRAZABILIDAD COMPLETA / CICLO DE VIDA POR SKU ============ */
+function openSkuTrace(codStr) {
+  S.skuTrace.selectedSku = String(codStr || '').trim().toUpperCase();
+  S.skuTrace.q = S.skuTrace.selectedSku;
+  S.tab = 'sku';
+  render();
+}
+
+function exportSkuTraceExcel(skuCode, allSkuRows, sizeMatrix, eventsList) {
+  if (!skuCode || !allSkuRows.length) return modal('Sin datos', 'Selecciona un SKU válido para exportar su trazabilidad.');
+  const wb = XLSX.utils.book_new();
+  const summaryAoa = [
+    [`TRAZABILIDAD COMPLETA DEL SKU: ${skuCode} · ${S.brand.toUpperCase()}`],
+    [],
+    ['Talla SAP', 'Talla Marca', 'Comprado Total', 'Pendiente 10A', 'En Forwarder', 'En DEPCO', 'Nacionalizado P24', 'DROP', 'Canales Iniciales', 'Canales Finales'],
+    ...sizeMatrix.map(sz => [
+      sz.tallaSap, sz.tallaMarca, sz.bought, sz.s10a, sz.fw, sz.depco, sz.p24, sz.drop,
+      [...sz.canalesIni].join(', '), [...sz.canalesFin].join(', ')
+    ])
+  ];
+  const detailAoa = [
+    ['Temporada', 'Detalle Compra', 'Régimen', 'Etapa', 'Factura', 'Fecha Factura', 'PT / Delivery', 'Embarque', 'F. Ingreso Emb.', 'LPN ID', 'Talla SAP', 'Cantidad', 'FOB', 'Valor Neto', 'Canal Inicial', 'Canal Final', 'PVP Inicial', 'PVP Final', 'OBS'],
+    ...eventsList.map(ev => [
+      ev.temporada, ev.detalleCompra, ev.regimen, ev.etapaLabel, ev.factura, ev.fechaFactura,
+      ev.delivery, ev.embarque, ev.fechaIngreso, ev.lpnId, ev.tallaSap, ev.cantidad,
+      ev.fob, ev.valorNeto, ev.canalInicial, ev.canalFinal, ev.pvpIni, ev.pvpFin, ev.obs
+    ])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa), 'Resumen_Por_Talla');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailAoa), 'Historial_Movimientos');
+  XLSX.writeFile(wb, `TRAZABILIDAD_SKU_${skuCode}_${S.brand}.xlsx`);
+}
+
+async function vSkuTrace() {
+  const view = $('view');
+  view.innerHTML = `<div class="p-8 text-center text-sm text-slate-500">Construyendo mapa de trazabilidad por SKU…</div>`;
+  await tick();
+
+  const sourceRows = S.skuTrace.scope === 'brand'
+    ? await getAllBrandRows(S.brand)
+    : S.rows;
+
+  // Catálogo rápido de SKUs únicos disponibles en el alcance actual
+  const skuCatalogMap = new Map();
+  for (const r of sourceRows) {
+    const cod = String(r['Código'] || '').trim().toUpperCase();
+    if (!cod) continue;
+    if (!skuCatalogMap.has(cod)) {
+      skuCatalogMap.set(cod, {
+        cod,
+        desc: r['Descripción'] || '',
+        grupo: r['Grupo'] || '',
+        cat: r['Categoría'] || '',
+        linea: r['Línea'] || '',
+        act: r['Actividad'] || '',
+        gen: r['Género'] || '',
+        color: r['Color'] || '',
+        totalUnits: 0
+      });
+    }
+    const info = skuCatalogMap.get(cod);
+    if (!info.desc && r['Descripción']) info.desc = r['Descripción'];
+    if (!info.color && r['Color']) info.color = r['Color'];
+    info.totalUnits += Number(r['Cantidad'] || 0);
+  }
+
+  const allSkusSorted = [...skuCatalogMap.values()].sort((a, b) => a.cod.localeCompare(b.cod));
+  if (!allSkusSorted.length) {
+    view.innerHTML = `<div class="bg-white border rounded-xl p-10 text-center max-w-lg mx-auto mt-6">
+      <h3 class="text-base font-bold text-slate-900">Sin SKUs cargados en ${esc(S.brand)} ${esc(S.season)}</h3>
+      <p class="text-xs text-slate-500 mt-1">Carga una compra inicial para visualizar el ciclo de vida de cada código.</p>
+    </div>`;
+    return;
+  }
+
+  // Resolver SKU activo
+  let activeSku = String(S.skuTrace.selectedSku || '').trim().toUpperCase();
+  if (!activeSku || !skuCatalogMap.has(activeSku)) {
+    const qNorm = String(S.skuTrace.q || '').trim().toUpperCase();
+    const hit = qNorm ? allSkusSorted.find(x => x.cod.includes(qNorm) || x.desc.toUpperCase().includes(qNorm)) : null;
+    activeSku = hit ? hit.cod : allSkusSorted[0].cod;
+    S.skuTrace.selectedSku = activeSku;
+  }
+
+  const skuInfo = skuCatalogMap.get(activeSku);
+  const skuRows = sourceRows.filter(r => String(r['Código'] || '').trim().toUpperCase() === activeSku);
+
+  // Enriquecer con plantilla si falta algún dato descriptivo
+  const { tplBySeason, globalTplItems } = getBrandTplCatalogMap(S.brand);
+  const tplEntry = (tplBySeason[norm(S.season)] || globalTplItems)[norm(activeSku)];
+
+  // Acumuladores del embudo del SKU
+  let uTotalBought = 0, fobTotalBought = 0;
+  let uCompraCanal = 0, uCompraExtra = 0;
+  let u10A = 0, fob10A = 0;
+  let uForwarder = 0, fobForwarder = 0;
+  let uDepco = 0, fobDepco = 0;
+  let uP24Nacionalizado = 0, fobP24Nacionalizado = 0;
+  let uDrop = 0, fobDrop = 0;
+
+  const canalIniMap = new Map();
+  const canalFinMap = new Map();
+  const embarquesMap = new Map();
+  const sizeMap = new Map();
+  const eventsList = [];
+
+  for (const r of skuRows) {
+    const qty = Number(r['Cantidad'] || 0);
+    const fob = Number(r['FOB'] || 0);
+    const vn = Number(r['Valor Neto'] || calcValorNeto(r));
+    const stage = st(r);
+    const emb = String(r['EMBARQUE'] || '').trim();
+    const isFw = stage === 'p' && emb.toUpperCase() === 'FORWARDER';
+    const det = String(r['Detalle compra'] || 'COMPRA CANAL').toUpperCase();
+    const cIni = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand) || 'SIN CANAL').trim();
+    const cFin = String(r['Canal Final'] || '').trim();
+    const talSap = String(r['Talla'] || '').trim() || '-';
+    const talMarca = String(r['Talla marca'] || '').trim() || '-';
+
+    uTotalBought += qty;
+    fobTotalBought += vn;
+    if (det === 'COMPRA EXTRA') uCompraExtra += qty;
+    else uCompraCanal += qty;
+
+    canalIniMap.set(cIni, (canalIniMap.get(cIni) || 0) + qty);
+
+    if (stage === 'o') {
+      u10A += qty;
+      fob10A += vn;
+    } else if (stage === 'dep') {
+      uDepco += qty;
+      fobDepco += vn;
+      canalFinMap.set('DEPCO (En Depósito)', (canalFinMap.get('DEPCO (En Depósito)') || 0) + qty);
+    } else if (stage === 'd') {
+      uDrop += qty;
+      fobDrop += vn;
+    } else if (isFw) {
+      uForwarder += qty;
+      fobForwarder += vn;
+    } else if (stage === 'p') {
+      uP24Nacionalizado += qty;
+      fobP24Nacionalizado += vn;
+      const destLabel = cFin || `${cIni} (Pend. Canal Final)`;
+      canalFinMap.set(destLabel, (canalFinMap.get(destLabel) || 0) + qty);
+    }
+
+    if (emb) {
+      if (!embarquesMap.has(emb)) {
+        embarquesMap.set(emb, {
+          emb,
+          stage,
+          isFw,
+          regimen: r['Régimen'] || 'CONSUMO',
+          units: 0,
+          fob: 0,
+          facturas: new Set(),
+          fechaIng: r['Fecha de ingreso embarque'] || ''
+        });
+      }
+      const eObj = embarquesMap.get(emb);
+      eObj.units += qty;
+      eObj.fob += vn;
+      if (r['Factura']) eObj.facturas.add(String(r['Factura']).trim());
+      if (!eObj.fechaIng && r['Fecha de ingreso embarque']) eObj.fechaIng = r['Fecha de ingreso embarque'];
+    }
+
+    // Matriz por talla
+    if (!sizeMap.has(talSap)) {
+      sizeMap.set(talSap, {
+        tallaSap: talSap,
+        tallaMarca: talMarca,
+        bought: 0,
+        s10a: 0,
+        fw: 0,
+        depco: 0,
+        p24: 0,
+        drop: 0,
+        canalesIni: new Set(),
+        canalesFin: new Set()
+      });
+    }
+    const sz = sizeMap.get(talSap);
+    sz.bought += qty;
+    sz.canalesIni.add(cIni);
+    if (cFin) sz.canalesFin.add(cFin);
+    if (stage === 'o') sz.s10a += qty;
+    else if (stage === 'dep') sz.depco += qty;
+    else if (stage === 'd') sz.drop += qty;
+    else if (isFw) sz.fw += qty;
+    else sz.p24 += qty;
+
+    // Línea de tiempo / eventos del SKU
+    let etapaLabel = '10A · Saldo Disponible';
+    let etapaOrder = 1;
+    if (isFw) { etapaLabel = 'FORWARDER · Facturado en Tránsito'; etapaOrder = 2; }
+    else if (stage === 'dep') { etapaLabel = 'DEPCO · En Depósito Aduanero'; etapaOrder = 3; }
+    else if (stage === 'p') { etapaLabel = 'P24 · Nacionalizado / Embarque'; etapaOrder = 4; }
+    else if (stage === 'd') { etapaLabel = 'DROP · Cancelado por Marca'; etapaOrder = 5; }
+
+    eventsList.push({
+      temporada: r.season || r['Temporada'] || S.season,
+      detalleCompra: det,
+      regimen: r['Régimen'] || 'CONSUMO',
+      stage,
+      isFw,
+      etapaLabel,
+      etapaOrder,
+      factura: r['Factura'] || '',
+      fechaFactura: r['Fecha de factura'] || '',
+      delivery: r['Delivery'] || '',
+      embarque: emb,
+      fechaIngreso: r['Fecha de ingreso embarque'] || '',
+      lpnId: r['LPN ID'] || '',
+      tallaSap: talSap,
+      tallaMarca: talMarca,
+      cantidad: qty,
+      fob,
+      valorNeto: vn,
+      canalInicial: cIni,
+      canalFinal: cFin,
+      pvpIni: Number(r['PVP'] || 0),
+      pvpFin: Number(r['PVP Final'] || 0),
+      obs: r['OBS'] || ''
+    });
+  }
+
+  // Buscar LPNs específicos en el historial DEPCO para este SKU
+  const skuLpnBatches = [];
+  for (const batch of (S.depcoLpnHistory || [])) {
+    const hits = (batch.items || []).filter(it => String(it.codigo || '').trim().toUpperCase() === activeSku);
+    if (hits.length) {
+      skuLpnBatches.push({ embarque: batch.embarque, items: hits });
+    }
+  }
+
+  eventsList.sort((a, b) => b.etapaOrder - a.etapaOrder || String(b.fechaFactura).localeCompare(String(a.fechaFactura)));
+  const sizeMatrix = [...sizeMap.values()].sort((a, b) => {
+    const na = parseFloat(a.tallaSap), nb = parseFloat(b.tallaSap);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return String(a.tallaSap).localeCompare(String(b.tallaSap));
+  });
+
+  const pctBar = v => (uTotalBought > 0 ? ((v / uTotalBought) * 100).toFixed(1) : '0.0');
+
+  view.innerHTML = `
+    <!-- Buscador Superior de SKU -->
+    <div class="bg-white border rounded-lg p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+        <div class="relative flex-1 max-w-md">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+          <input type="text" id="skuTraceInput" list="skuTraceDatalist" class="border-2 border-indigo-200 focus:border-indigo-600 rounded-md pl-9 pr-3 py-1.5 text-sm w-full bg-white font-semibold uppercase" placeholder="Escribe o elige un Código SKU (ej. ID3464, HP7011)..." value="${esc(activeSku)}">
+          <datalist id="skuTraceDatalist">
+            ${allSkusSorted.map(x => `<option value="${esc(x.cod)}">${esc(x.cod)} · ${esc(x.desc)} (${fn(x.totalUnits)} u.)</option>`).join('')}
+          </datalist>
+        </div>
+        <button type="button" id="btnSkuTraceGo" class="btn btn-p !text-xs">
+          <i data-lucide="route" class="w-4 h-4"></i> Rastrear SKU
+        </button>
+        <div class="inline-flex rounded-md border bg-slate-100 p-0.5 text-xs font-medium">
+          <button type="button" id="btnSkuScopeSeason" class="px-2.5 py-1 rounded ${S.skuTrace.scope === 'season' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'}">Solo ${esc(S.season)}</button>
+          <button type="button" id="btnSkuScopeBrand" class="px-2.5 py-1 rounded ${S.skuTrace.scope === 'brand' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'}">Todas las temp. ${esc(S.brand)}</button>
+        </div>
+      </div>
+      <button type="button" id="btnExportSkuTrace" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 !text-xs">
+        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Exportar Ficha SKU
+      </button>
+    </div>
+
+    <!-- Tarjeta de Identidad del Producto -->
+    <div class="bg-white border rounded-lg p-4 mb-4 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <span class="px-2.5 py-1 rounded-md bg-slate-900 text-white font-mono font-bold text-base tracking-wide">${esc(activeSku)}</span>
+          <h2 class="text-lg font-bold text-slate-900">${esc(skuInfo.desc || (tplEntry && tplEntry.descripcion) || 'Sin descripción')}</h2>
+        </div>
+        <div class="flex flex-wrap gap-3 text-xs text-slate-600 mt-1.5">
+          <span>Grupo: <b>${esc(skuInfo.grupo || (tplEntry && tplEntry.grupo) || '-')}</b></span>
+          <span>· Categoría: <b>${esc(skuInfo.cat || (tplEntry && tplEntry.categoria) || '-')}</b></span>
+          <span>· Línea: <b>${esc(skuInfo.linea || (tplEntry && tplEntry.linea) || '-')}</b></span>
+          <span>· Actividad: <b>${esc(skuInfo.act || (tplEntry && tplEntry.actividad) || '-')}</b></span>
+          <span>· Género: <b>${esc(skuInfo.gen || (tplEntry && tplEntry.genero) || '-')}</b></span>
+          ${skuInfo.color ? `<span>· Color: <b>${esc(skuInfo.color)}</b></span>` : ''}
+        </div>
+      </div>
+      <div class="text-right text-xs">
+        <div class="text-slate-500">Origen de la Compra</div>
+        <div class="font-semibold text-slate-800 mt-0.5">
+          Compra Canal: <b>${fn(uCompraCanal)} u.</b> · Compra Extra: <b>${fn(uCompraExtra)} u.</b>
+        </div>
+      </div>
+    </div>
+
+    <!-- Embudo Visual del Ciclo de Vida del SKU (6 Etapas) -->
+    <div class="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-4">
+      ${kpi('1. Comprado Total', fn(uTotalBought), '100% presupuesto SKU', 'border-l-4 border-l-slate-700', fobTotalBought)}
+      ${kpi('2. Pendiente (10A)', fn(u10A), `${pctBar(u10A)}% por facturar`, 'border-l-4 border-l-amber-500', fob10A)}
+      ${kpi('3. En FORWARDER', fn(uForwarder), `${pctBar(uForwarder)}% facturado en tránsito`, 'border-l-4 border-l-orange-500', fobForwarder)}
+      ${kpi('4. En DEPCO', fn(uDepco), `${pctBar(uDepco)}% en depósito aduanero`, 'border-l-4 border-l-indigo-600', fobDepco)}
+      ${kpi('5. Nacionalizado (P24)', fn(uP24Nacionalizado), `${pctBar(uP24Nacionalizado)}% ingresado / canal final`, 'border-l-4 border-l-emerald-600', fobP24Nacionalizado)}
+      ${kpi('6. DROP / Cancelado', fn(uDrop), `${pctBar(uDrop)}% caído por marca`, 'border-l-4 border-l-red-600', fobDrop)}
+    </div>
+
+    <!-- Barra de Flujo Visual y Comparativa Canal Inicial vs Canal Final -->
+    <div class="grid gap-4 lg:grid-cols-3 mb-5">
+      <div class="bg-white border rounded-lg p-4">
+        <div class="text-xs font-bold uppercase tracking-wide text-slate-600 mb-2">Asignación Original (Canal Inicial)</div>
+        <div class="space-y-1.5">
+          ${[...canalIniMap.entries()].sort((a, b) => b[1] - a[1]).map(([c, u]) => `
+            <div class="flex items-center justify-between text-xs bg-slate-50 border rounded px-2.5 py-1.5">
+              <span class="font-semibold text-slate-800">${esc(c)}</span>
+              <span class="font-bold num text-slate-900">${fn(u)} unid. (${pctBar(u)}%)</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="bg-white border rounded-lg p-4">
+        <div class="text-xs font-bold uppercase tracking-wide text-indigo-800 mb-2">Destino Actual / Canal Final</div>
+        <div class="space-y-1.5">
+          ${canalFinMap.size ? [...canalFinMap.entries()].sort((a, b) => b[1] - a[1]).map(([c, u]) => `
+            <div class="flex items-center justify-between text-xs ${c.startsWith('DEPCO') ? 'bg-indigo-50 border-indigo-200 text-indigo-950' : 'bg-emerald-50/70 border-emerald-200 text-emerald-950'} border rounded px-2.5 py-1.5">
+              <span class="font-semibold">${esc(c)}</span>
+              <span class="font-bold num">${fn(u)} unid.</span>
+            </div>
+          `).join('') : '<div class="text-xs text-slate-400 italic py-3">Aún no hay unidades nacionalizadas o asignadas a Canal Final.</div>'}
+        </div>
+      </div>
+
+      <div class="bg-white border rounded-lg p-4">
+        <div class="text-xs font-bold uppercase tracking-wide text-sky-900 mb-2">Embarques & Tránsito Asociados</div>
+        <div class="space-y-1.5 max-h-40 overflow-y-auto">
+          ${embarquesMap.size ? [...embarquesMap.values()].map(e => `
+            <div class="text-xs border rounded px-2.5 py-1.5 ${e.isFw ? 'bg-amber-50 border-amber-200' : e.stage === 'dep' ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50'}">
+              <div class="flex items-center justify-between font-bold">
+                <span>${esc(e.emb)} <span class="text-[10px] font-normal text-slate-500">(${esc(e.regimen)})</span></span>
+                <span class="num">${fn(e.units)} unid.</span>
+              </div>
+              <div class="text-[11px] text-slate-500 flex justify-between mt-0.5">
+                <span>Fact: ${esc([...e.facturas].join(', ') || 'N/A')}</span>
+                <span>${e.fechaIng ? 'Ing: ' + esc(e.fechaIng) : ''}</span>
+              </div>
+            </div>
+          `).join('') : '<div class="text-xs text-slate-400 italic py-3">Sin embarques asignados todavía (100% en 10A).</div>'}
+        </div>
+      </div>
+    </div>
+
+    <!-- Curva de Tallas del SKU por Etapa -->
+    <div class="bg-white border rounded-lg overflow-hidden mb-5">
+      <div class="px-4 py-2.5 bg-slate-50 border-b flex items-center justify-between">
+        <span class="text-xs font-bold uppercase tracking-wide text-slate-700">Curva de Tallas del SKU · Distribución por Estado</span>
+        <span class="text-xs text-slate-500">${fn(sizeMatrix.length)} talla(s)</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-left text-slate-600 bg-slate-100/70 border-b">
+              <th class="px-3 py-2 font-semibold">Talla SAP</th>
+              <th class="px-3 py-2 font-semibold">Talla Marca</th>
+              <th class="px-3 py-2 text-right font-semibold">Comprado</th>
+              <th class="px-3 py-2 text-right font-semibold text-amber-800">Pend. 10A</th>
+              <th class="px-3 py-2 text-right font-semibold text-orange-800">Forwarder</th>
+              <th class="px-3 py-2 text-right font-semibold text-indigo-900">En DEPCO</th>
+              <th class="px-3 py-2 text-right font-semibold text-emerald-800">Nac. P24</th>
+              <th class="px-3 py-2 text-right font-semibold text-red-800">DROP</th>
+              <th class="px-3 py-2 font-semibold">Canal Inicial</th>
+              <th class="px-3 py-2 font-semibold">Canal Final</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sizeMatrix.map(sz => `
+              <tr class="border-t hover:bg-slate-50">
+                <td class="px-3 py-1.5 font-mono font-bold text-slate-900">${esc(sz.tallaSap)}</td>
+                <td class="px-3 py-1.5 font-mono text-slate-500">${esc(sz.tallaMarca)}</td>
+                <td class="px-3 py-1.5 num font-bold">${fn(sz.bought)}</td>
+                <td class="px-3 py-1.5 num ${sz.s10a > 0 ? 'font-bold text-amber-700 bg-amber-50/50' : 'text-slate-400'}">${fn(sz.s10a)}</td>
+                <td class="px-3 py-1.5 num ${sz.fw > 0 ? 'font-bold text-orange-700 bg-orange-50/50' : 'text-slate-400'}">${fn(sz.fw)}</td>
+                <td class="px-3 py-1.5 num ${sz.depco > 0 ? 'font-bold text-indigo-800 bg-indigo-50/60' : 'text-slate-400'}">${fn(sz.depco)}</td>
+                <td class="px-3 py-1.5 num ${sz.p24 > 0 ? 'font-bold text-emerald-800 bg-emerald-50/50' : 'text-slate-400'}">${fn(sz.p24)}</td>
+                <td class="px-3 py-1.5 num ${sz.drop > 0 ? 'font-bold text-red-700' : 'text-slate-400'}">${fn(sz.drop)}</td>
+                <td class="px-3 py-1.5 text-slate-700">${esc([...sz.canalesIni].join(', '))}</td>
+                <td class="px-3 py-1.5 font-semibold text-indigo-950">${esc([...sz.canalesFin].join(', ') || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Desglose Detallado de Todos los Movimientos del SKU -->
+    <div class="bg-white border rounded-lg overflow-hidden">
+      <div class="px-4 py-2.5 bg-slate-50 border-b flex items-center justify-between">
+        <span class="text-xs font-bold uppercase tracking-wide text-slate-700">Historial Completo de Particiones y Movimientos (${fn(eventsList.length)} registros)</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-left text-slate-600 bg-slate-100/70 border-b">
+              <th class="px-3 py-2">Temp.</th>
+              <th class="px-3 py-2">Estado Actual</th>
+              <th class="px-3 py-2">Régimen</th>
+              <th class="px-3 py-2">Talla SAP</th>
+              <th class="px-3 py-2 text-right">Cant.</th>
+              <th class="px-3 py-2 text-right">FOB</th>
+              <th class="px-3 py-2">Canal Inicial</th>
+              <th class="px-3 py-2">Canal Final</th>
+              <th class="px-3 py-2">Embarque</th>
+              <th class="px-3 py-2">Factura</th>
+              <th class="px-3 py-2">F. Ingreso</th>
+              <th class="px-3 py-2">LPN / OBS</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${eventsList.map(ev => `
+              <tr class="r-${ev.stage} border-t border-white/60">
+                <td class="px-3 py-1.5 font-semibold">${esc(ev.temporada)}</td>
+                <td class="px-3 py-1.5 font-bold whitespace-nowrap">${esc(ev.etapaLabel)}</td>
+                <td class="px-3 py-1.5 whitespace-nowrap">${esc(ev.regimen)}</td>
+                <td class="px-3 py-1.5 font-mono font-bold">${esc(ev.tallaSap)}</td>
+                <td class="px-3 py-1.5 num font-bold">${fn(ev.cantidad)}</td>
+                <td class="px-3 py-1.5 num">${ev.fob.toFixed(2)}</td>
+                <td class="px-3 py-1.5">${esc(ev.canalInicial)}</td>
+                <td class="px-3 py-1.5 font-bold text-indigo-950">${esc(ev.canalFinal || '—')}</td>
+                <td class="px-3 py-1.5 font-semibold whitespace-nowrap">${esc(ev.embarque || '—')}</td>
+                <td class="px-3 py-1.5 whitespace-nowrap">${esc(ev.factura || '—')}</td>
+                <td class="px-3 py-1.5 whitespace-nowrap">${esc(ev.fechaIngreso || '—')}</td>
+                <td class="px-3 py-1.5 text-[11px] text-slate-600">${esc([ev.lpnId, ev.obs].filter(Boolean).join(' · ') || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  icons();
+  const triggerSearch = () => {
+    const val = $('skuTraceInput').value.trim().toUpperCase();
+    if (!val) return;
+    S.skuTrace.q = val;
+    if (skuCatalogMap.has(val)) {
+      S.skuTrace.selectedSku = val;
+    } else {
+      const partial = allSkusSorted.find(x => x.cod.includes(val) || x.desc.toUpperCase().includes(val));
+      if (partial) S.skuTrace.selectedSku = partial.cod;
+    }
+    vSkuTrace();
+  };
+
+  $('btnSkuTraceGo').onclick = triggerSearch;
+  $('skuTraceInput').onkeydown = e => { if (e.key === 'Enter') triggerSearch(); };
+  $('skuTraceInput').onchange = triggerSearch;
+  $('btnSkuScopeSeason').onclick = () => { S.skuTrace.scope = 'season'; vSkuTrace(); };
+  $('btnSkuScopeBrand').onclick = () => { S.skuTrace.scope = 'brand'; vSkuTrace(); };
+  $('btnExportSkuTrace').onclick = () => exportSkuTraceExcel(activeSku, skuRows, sizeMatrix, eventsList);
 }
 
 /* ============ VISTA CORPORATIVA: INGRESOS DE EMBARQUES POR MES Y SALDO FALTANTE ============ */
@@ -4869,38 +6374,39 @@ function vMx() {
   const embarques = [...new Set(S.rows.map(r => r['EMBARQUE']).filter(Boolean))].sort();
   $('view').innerHTML = `
     <div class="flex flex-wrap gap-2 mb-3">
-      <input id="q" class="border rounded px-3 py-2 text-sm w-56 bg-white" placeholder="Buscar Código, Factura..." value="${esc(S.f.q)}">
-      <select id="fe" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <input id="q" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm w-56 bg-white shadow-2xs focus:border-slate-900 focus:outline-none" placeholder="Buscar Código, Factura..." value="${esc(S.f.q)}">
+      <select id="fe" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todas las etapas</option>
         <option value="o">10A · Disponible</option>
-        <option value="p">P24 · Embarque</option>
+        <option value="p">P24 · Nacionalizado / Embarque</option>
+        <option value="dep">DEPCO · Depósito Comercial</option>
         <option value="d">DROP · Cancelado</option>
       </select>
-      <select id="fdet" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <select id="fdet" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todo detalle compra</option>
         ${detalles.map(d => `<option>${esc(d)}</option>`).join('')}
       </select>
-      <select id="fc" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <select id="fc" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todos los canales iniciales</option>
         ${canalesIniciales.map(c => `<option>${esc(c)}</option>`).join('')}
       </select>
-      <select id="fcf" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <select id="fcf" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todos los canales finales</option>
         <option value="__EMPTY__">Sin canal final (Pendiente)</option>
         ${canalesFinales.map(c => `<option>${esc(c)}</option>`).join('')}
       </select>
-      <select id="femb" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <select id="femb" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todos los embarques</option>
         <option value="__EMPTY__">Sin embarque asignado</option>
         ${embarques.map(e => `<option>${esc(e)}</option>`).join('')}
       </select>
-      <select id="fq" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <select id="fq" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todas las fechas factura</option>
         <option value="q1">1ra Quincena (Días 1 - 15)</option>
         <option value="q2">2da Quincena (Días 16 - 31)</option>
         <option value="__EMPTY__">Sin fecha de factura</option>
       </select>
-      <select id="fpc" class="border rounded px-2.5 py-2 text-sm bg-white">
+      <select id="fpc" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todos los precios</option>
         <option value="changed">Con cambio de PVP (Reetiquetar)</option>
       </select>
@@ -4971,14 +6477,14 @@ function drawMx() {
   const totalCantidad = rows.reduce((acc, r) => acc + (Number(r['Cantidad']) || 0), 0);
   const totalValorNeto = rows.reduce((acc, r) => acc + (Number(r['Valor Neto']) || calcValorNeto(r)), 0);
   const pg = rows.slice((S.page - 1) * S.size, S.page * S.size);
-  const headers = ['Seg.', 'Detalle compra', 'Código', 'Descripción', 'Color', 'Talla', 'Etapa', 'Ref. Compra', 'Canal Inicial', 'Canal Final', 'Cant.', 'FOB', 'Valor Neto', 'PVP', 'PVP Final', 'Factura', 'F. Factura', 'Embarque', 'F. Ingreso Emb.'];
+  const headers = ['Seg.', 'Detalle compra', 'Régimen', 'Código', 'Descripción', 'Color', 'Talla', 'Etapa', 'Ref. Compra', 'Canal Inicial', 'Canal Final', 'Cant.', 'FOB', 'Valor Neto', 'PVP', 'PVP Final', 'Factura', 'F. Factura', 'Embarque', 'F. Ingreso Emb.'];
 
   $('tbl').innerHTML = `
     <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 300px)">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-xs text-slate-600">
-            ${headers.map((h, i) => `<th class="px-3 py-2 whitespace-nowrap ${i >= 10 && i <= 14 ? 'text-right' : ''}">${h}</th>`).join('')}
+            ${headers.map((h, i) => `<th class="px-3 py-2 whitespace-nowrap ${i >= 11 && i <= 15 ? 'text-right' : ''}">${h}</th>`).join('')}
           </tr>
         </thead>
         <tbody>
@@ -4996,7 +6502,8 @@ function drawMx() {
             <tr class="r-${st(r)} border-t border-white/60">
               <td class="px-3 py-1.5">${esc(r['Seguimiento'])}</td>
               <td class="px-3 py-1.5 whitespace-nowrap"><span class="text-[11px] font-semibold px-2 py-0.5 rounded border ${detBadge}">${esc(r['Detalle compra'] || 'COMPRA CANAL')}</span></td>
-              <td class="px-3 py-1.5 font-medium">${esc(r['Código'])}</td>
+              <td class="px-3 py-1.5 whitespace-nowrap"><span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${String(r['Régimen'] || '').includes('DEPCO') ? 'bg-indigo-100 text-indigo-900 border border-indigo-200' : 'bg-slate-100 text-slate-600'}">${esc(r['Régimen'] || 'CONSUMO')}</span></td>
+              <td class="px-3 py-1.5 font-medium"><button type="button" onclick="openSkuTrace('${esc(r['Código'])}')" class="text-indigo-900 font-bold hover:underline cursor-pointer text-left" title="Ver ciclo de vida completo de ${esc(r['Código'])}">${esc(r['Código'])}</button></td>
               <td class="px-3 py-1.5 max-w-[14rem] truncate" title="${esc(r['Descripción'])}">${esc(r['Descripción'])}</td>
               <td class="px-3 py-1.5">${esc(r['Color'])}</td>
               <td class="px-3 py-1.5">${esc(r['Talla'])}</td>
@@ -5014,12 +6521,12 @@ function drawMx() {
               <td class="px-3 py-1.5 font-semibold text-slate-700 whitespace-nowrap">${esc(r['EMBARQUE'] || '')}</td>
               <td class="px-3 py-1.5 whitespace-nowrap text-xs font-medium text-sky-900">${esc(r['Fecha de ingreso embarque'] || '')}</td>
             </tr>
-          `}).join('') || '<tr><td colspan="19" class="p-6 text-center text-slate-500">Sin resultados para estos filtros.</td></tr>'}
+          `}).join('') || '<tr><td colspan="20" class="p-6 text-center text-slate-500">Sin resultados para estos filtros.</td></tr>'}
         </tbody>
         ${rows.length ? `
         <tfoot>
           <tr class="font-semibold text-slate-800 text-sm">
-            <td colspan="10" class="px-3 py-2.5 text-right text-xs uppercase tracking-wider text-slate-500">Totales filtrados:</td>
+            <td colspan="11" class="px-3 py-2.5 text-right text-xs uppercase tracking-wider text-slate-500">Totales filtrados:</td>
             <td class="px-3 py-2.5 num font-bold text-slate-900 text-base">${fn(totalCantidad)}</td>
             <td class="px-3 py-2.5"></td>
             <td class="px-3 py-2.5 num font-bold text-indigo-950 text-base">${fmoney(totalValorNeto)}</td>
@@ -5046,6 +6553,261 @@ function pager(n) {
       <button class="btn" ${S.page >= pages ? 'disabled' : ''} onclick="S.page++;drawMx()">Siguiente</button>
     </div>
   `;
+}
+
+
+/* ============ VISTA DEDICADA: INVENTARIO DEPCO (LPN POR CARTÓN, PARCIALIZACIONES Y HISTORIAL INGRESOS TIENDAS) ============ */
+function vDepco() {
+  const view = $('view');
+  const hist = S.depcoLpnHistory || [];
+  const tiendasHist = S.tiendasConsolHistory || [];
+
+  const flatItems = [];
+  for (const batch of hist) {
+    if (!Array.isArray(batch.items)) continue;
+    batch.items.forEach((it, idx) => {
+      flatItems.push({
+        uid: `${batch.id}::${idx}`,
+        batchId: batch.id,
+        ...it
+      });
+    });
+  }
+
+  const pendingItems = flatItems.filter(x => x.statusDepco !== 'NACIONALIZADO');
+  const totalDepcoUnits = pendingItems.reduce((a, x) => a + Number(x.qty || 0), 0);
+  const totalDepcoFob = pendingItems.reduce((a, x) => a + (Number(x.fobMarca || 0) * Number(x.qty || 0)), 0);
+  const uniqueLpns = new Set(pendingItems.map(x => x.lpnId).filter(Boolean)).size;
+  const totalIngresosTiendasUnits = tiendasHist.reduce((a, h) => a + Number(h.totalUnits || 0), 0);
+
+  const embarquesList = [...new Set(flatItems.map(x => x.embarque).filter(Boolean))].sort();
+  const facturasList = [...new Set(flatItems.map(x => x.invoices).filter(Boolean))].sort();
+  const canalesList = [...new Set(flatItems.map(x => x.canalFactura).filter(Boolean))].sort();
+  const dt = S.depcoTab;
+
+  view.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4 bg-white p-4 rounded-lg border">
+      <div>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold text-slate-900">Control de Régimen DEPCO & Consolidados LPN · Adidas</h2>
+          <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">${fn(uniqueLpns)} cartones (LPN)</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-0.5">Gestiona el armado de <b>OC (LPN)</b>, el saldo suspendido en <b>DEPCO</b> por cartón, las nacionalizaciones parciales a <b>P24</b> y los archivos <b>INGRESOS TIENDAS CONSOLIDADO</b>.</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" onclick="openDepcoLpnStep1Modal()" class="btn !bg-indigo-50 !text-indigo-950 !border-indigo-300 hover:!bg-indigo-100 !text-xs">
+          <i data-lucide="package-plus" class="w-4 h-4 text-indigo-700"></i> 1. Armar OC (LPN) para Producto
+        </button>
+        <button type="button" onclick="$('fDepcoConsol').click()" class="btn btn-p !text-xs">
+          <i data-lucide="file-check-2" class="w-4 h-4"></i> 2. Cargar OC (LPN) - CONSOLIDADO
+        </button>
+      </div>
+    </div>
+
+    <div class="grid gap-3 grid-cols-2 xl:grid-cols-4 mb-4">
+      ${kpi('Saldo Activo en DEPCO', fn(totalDepcoUnits), `${fn(pendingItems.length)} líneas · ${fn(uniqueLpns)} cartones LPN`, 'border-l-4 border-l-indigo-600', totalDepcoFob)}
+      ${kpi('Ingresos Tiendas Generados', fn(totalIngresosTiendasUnits), `${fn(tiendasHist.length)} consolidado(s) mensuales`, 'border-l-4 border-l-sky-600')}
+      <div class="bg-white rounded-lg border p-3.5 col-span-2 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">Historial INGRESOS TIENDAS CONSOLIDADO</span>
+          <span class="text-[11px] text-slate-400">Listos para distribución Tiendas</span>
+        </div>
+        <div class="mt-2 max-h-20 overflow-y-auto space-y-1.5">
+          ${tiendasHist.length ? tiendasHist.map((h, i) => `
+            <div class="flex items-center justify-between text-xs bg-sky-50/70 border border-sky-200 rounded px-2.5 py-1">
+              <div class="truncate">
+                <span class="font-bold text-sky-950">CONSOLIDADO ${h.seq} ${esc(h.month)}</span>
+                <span class="text-slate-600"> · ${esc(h.embarque)} · <b>${fn(h.totalUnits)} unid.</b> (${fn(h.cruceUnits)} cruce)</span>
+              </div>
+              <button type="button" data-dl-tconsol="${i}" class="shrink-0 text-sky-800 font-bold hover:underline flex items-center gap-1 ml-2">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Excel
+              </button>
+            </div>
+          `).join('') : '<div class="text-xs text-slate-400 italic">Aún no se han generado consolidados de Ingresos Tiendas.</div>'}
+        </div>
+      </div>
+    </div>
+
+    ${flatItems.length === 0 ? `
+      <div class="bg-white border rounded-xl p-10 text-center max-w-xl mx-auto mt-4">
+        <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="warehouse" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-slate-900">Sin mercancía suspendida en DEPCO</h3>
+        <p class="text-xs text-slate-500 mt-1.5 leading-relaxed">
+          Cuando subas una <b>OC (LPN) - CONSOLIDADO</b> devuelta por Producto, todas las líneas marcadas como <code>NO IMPORTAR</code> / <code>DEPCO</code> aparecerán aquí con su <code>LPN ID</code> para que puedas controlarlas y nacionalizarlas parcialmente cuando lo necesites.
+        </p>
+      </div>
+    ` : `
+      <div class="bg-white border rounded-lg p-3 mb-3 flex flex-wrap items-center gap-2">
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5"></i>
+          <input type="text" id="dpSearch" class="border rounded pl-8 pr-3 py-1.5 text-sm w-56 bg-white" placeholder="Buscar LPN ID, Código, SAP, Factura..." value="${esc(dt.q)}">
+        </div>
+        <select id="dpEmb" class="border rounded px-2.5 py-1.5 text-sm bg-white font-medium">
+          <option value="">Todos los embarques (${embarquesList.length})</option>
+          ${embarquesList.map(e => `<option value="${esc(e)}" ${dt.embarque === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}
+        </select>
+        <select id="dpFact" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+          <option value="">Todas las facturas (${facturasList.length})</option>
+          ${facturasList.map(f => `<option value="${esc(f)}" ${dt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
+        </select>
+        <select id="dpCanal" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+          <option value="">Todos los canales factura</option>
+          ${canalesList.map(c => `<option value="${esc(c)}" ${dt.canalFact === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+        <button type="button" id="btnDepcoNacSelected" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 ml-auto !text-xs disabled:opacity-50" disabled>
+          <i data-lucide="check-circle-2" class="w-4 h-4"></i> Nacionalizar Seleccionados (<span id="dpSelCount">0</span>)
+        </button>
+      </div>
+      <div id="dpTableWrap"></div>
+    `}
+  `;
+
+  view.querySelectorAll('[data-dl-tconsol]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = Number(btn.dataset.dlTconsol);
+      const entry = tiendasHist[idx];
+      if (entry) exportIngresosTiendasExcel(entry.rows, entry.seq, entry.month);
+    };
+  });
+
+  if (!flatItems.length) {
+    icons();
+    return;
+  }
+
+  const selectedUids = new Set();
+  const updateSelBtn = () => {
+    const btn = $('btnDepcoNacSelected');
+    const lbl = $('dpSelCount');
+    if (lbl) lbl.textContent = fn(selectedUids.size);
+    if (btn) btn.disabled = selectedUids.size === 0;
+  };
+
+  const drawDepcoTable = () => {
+    const q = dt.q.trim().toLowerCase();
+    const filtered = flatItems.filter(it => {
+      if (dt.embarque && it.embarque !== dt.embarque) return false;
+      if (dt.factura && it.invoices !== dt.factura) return false;
+      if (dt.canalFact && it.canalFactura !== dt.canalFact) return false;
+      if (q) {
+        const hay = `${it.lpnId} ${it.codigo} ${it.descripcion} ${it.sap} ${it.ean} ${it.invoices} ${it.embarque}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const filtUnits = filtered.reduce((a, x) => a + Number(x.qty || 0), 0);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / dt.size));
+    if (dt.page > totalPages) dt.page = totalPages;
+    const slice = filtered.slice((dt.page - 1) * dt.size, dt.page * dt.size);
+
+    $('dpTableWrap').innerHTML = `
+      <div class="bg-white border rounded-lg overflow-auto" style="max-height:calc(100vh - 395px)">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-left text-slate-700 bg-slate-100 border-b">
+              <th class="px-2.5 py-2 text-center"><input type="checkbox" id="dpChkAll" class="w-3.5 h-3.5 accent-indigo-700" title="Seleccionar página visible"></th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Estado DEPCO</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">LPN ID (Cartón)</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Embarque</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Factura</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Código</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Descripción</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Talla SAP</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">SAP</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Canal Factura</th>
+              <th class="px-2.5 py-2 whitespace-nowrap">Destino</th>
+              <th class="px-2.5 py-2 text-right whitespace-nowrap">Cant.</th>
+              <th class="px-2.5 py-2 text-right whitespace-nowrap">FOB Marca</th>
+              <th class="px-2.5 py-2 text-right whitespace-nowrap">PVP Final</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${slice.map(it => {
+              const isNac = it.statusDepco === 'NACIONALIZADO';
+              const checked = selectedUids.has(it.uid) ? 'checked' : '';
+              return `
+              <tr class="border-t ${isNac ? 'bg-emerald-50/40 text-slate-500' : 'hover:bg-indigo-50/40'}">
+                <td class="px-2.5 py-1.5 text-center">
+                  ${isNac ? '✓' : `<input type="checkbox" class="dp-row-chk w-3.5 h-3.5 accent-indigo-700" data-uid="${esc(it.uid)}" ${checked}>`}
+                </td>
+                <td class="px-2.5 py-1.5 whitespace-nowrap">
+                  ${isNac
+                    ? `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[10px]">NACIONALIZADO</span>`
+                    : `<span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-300 font-bold text-[10px]">EN DEPCO</span>`}
+                </td>
+                <td class="px-2.5 py-1.5 font-mono font-semibold whitespace-nowrap">${esc(it.lpnId)}</td>
+                <td class="px-2.5 py-1.5 font-semibold whitespace-nowrap">${esc(it.embarque)}</td>
+                <td class="px-2.5 py-1.5 whitespace-nowrap">${esc(it.invoices)}</td>
+                <td class="px-2.5 py-1.5 font-bold text-slate-900 whitespace-nowrap">${esc(it.codigo)}</td>
+                <td class="px-2.5 py-1.5 max-w-[13rem] truncate" title="${esc(it.descripcion)}">${esc(it.descripcion)}</td>
+                <td class="px-2.5 py-1.5 font-mono">${esc(it.tallaSap)}</td>
+                <td class="px-2.5 py-1.5 font-mono text-sky-900">${esc(it.sap)}</td>
+                <td class="px-2.5 py-1.5 font-medium">${esc(it.canalFactura)}</td>
+                <td class="px-2.5 py-1.5 font-bold text-indigo-950">${esc(it.canalFinal)}</td>
+                <td class="px-2.5 py-1.5 num font-bold">${fn(it.qty)}</td>
+                <td class="px-2.5 py-1.5 num">${Number(it.fobMarca || 0).toFixed(2)}</td>
+                <td class="px-2.5 py-1.5 num font-semibold">${Number(it.pvpFinal || it.pvp || 0).toFixed(2)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr class="font-bold text-slate-900 bg-slate-100 border-t-2 border-slate-300">
+              <td colspan="11" class="px-3 py-2 text-right text-xs uppercase text-slate-600">Total filtrado (${fn(filtered.length)} líneas):</td>
+              <td class="px-2.5 py-2 num text-sm text-indigo-950">${fn(filtUnits)}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="flex items-center justify-between text-xs mt-3 bg-white border rounded-lg px-4 py-2">
+        <span>Página <b>${dt.page}</b> de <b>${totalPages}</b></span>
+        <div class="flex gap-2">
+          <button type="button" id="dpPrev" class="btn !py-1 !px-2.5 !text-xs" ${dt.page <= 1 ? 'disabled' : ''}>Anterior</button>
+          <button type="button" id="dpNext" class="btn !py-1 !px-2.5 !text-xs" ${dt.page >= totalPages ? 'disabled' : ''}>Siguiente</button>
+        </div>
+      </div>
+    `;
+
+    $('dpTableWrap').querySelectorAll('.dp-row-chk').forEach(chk => {
+      chk.onchange = () => {
+        if (chk.checked) selectedUids.add(chk.dataset.uid);
+        else selectedUids.delete(chk.dataset.uid);
+        updateSelBtn();
+      };
+    });
+    if ($('dpChkAll')) {
+      $('dpChkAll').onchange = e => {
+        const check = e.target.checked;
+        $('dpTableWrap').querySelectorAll('.dp-row-chk').forEach(chk => {
+          chk.checked = check;
+          if (check) selectedUids.add(chk.dataset.uid);
+          else selectedUids.delete(chk.dataset.uid);
+        });
+        updateSelBtn();
+      };
+    }
+    $('dpPrev').onclick = () => { if (dt.page > 1) { dt.page--; drawDepcoTable(); } };
+    $('dpNext').onclick = () => { if (dt.page < totalPages) { dt.page++; drawDepcoTable(); } };
+  };
+
+  let dpTimer;
+  const onDpFilter = () => {
+    dt.q = $('dpSearch').value;
+    dt.embarque = $('dpEmb').value;
+    dt.factura = $('dpFact').value;
+    dt.canalFact = $('dpCanal').value;
+    dt.page = 1;
+    clearTimeout(dpTimer);
+    dpTimer = setTimeout(drawDepcoTable, 150);
+  };
+  ['dpSearch', 'dpEmb', 'dpFact', 'dpCanal'].forEach(id => $(id).oninput = onDpFilter);
+  $('btnDepcoNacSelected').onclick = () => nacionalizarDesdeDepco(selectedUids, dt.embarque);
+
+  icons();
+  drawDepcoTable();
 }
 
 /* ============ VISTA DEDICADA: DETALLE DE FACTURACIÓN CONSOLIDADO (CON TOTALES, FILTROS Y CRUCE SAP/EAN) ============ */
@@ -5489,7 +7251,7 @@ function vDrop() {
           ${d.map(r => `
             <tr class="border-t">
               <td class="px-3 py-1.5 text-xs">${esc(r['Detalle compra'] || 'COMPRA CANAL')}</td>
-              <td class="px-3 py-1.5 font-medium">${esc(r['Código'])}</td>
+              <td class="px-3 py-1.5 font-medium"><button type="button" onclick="openSkuTrace('${esc(r['Código'])}')" class="text-indigo-900 font-bold hover:underline cursor-pointer text-left" title="Ver ciclo de vida completo de ${esc(r['Código'])}">${esc(r['Código'])}</button></td>
               <td class="px-3 py-1.5">${esc(r['Descripción'])}</td>
               <td class="px-3 py-1.5">${esc(r['Color'])}</td>
               <td class="px-3 py-1.5">${esc(r['Talla'])}</td>
@@ -5540,6 +7302,26 @@ $('fPtsAssign').onchange = e => {
 };
 $('fSizeMap').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadSizeMapExcel(f); };
 $('fSapCatalog').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadSapCatalogExcel(f); };
+$('fDepcoBill').onchange = e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  pendingDepcoBillFile = f;
+  if ($('lblDepcoBillName')) {
+    $('lblDepcoBillName').innerHTML = `<span class="font-semibold text-indigo-900">✓ ${esc(f.name)}</span>`;
+    if ($('btnRunDepco1')) $('btnRunDepco1').disabled = false;
+  }
+};
+$('fDepcoPts').onchange = e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  pendingDepcoPtsFile = f;
+  if ($('lblDepcoPtsName')) {
+    $('lblDepcoPtsName').innerHTML = `<span class="font-semibold text-teal-900">✓ ${esc(f.name)}</span>`;
+  }
+};
+$('fDepcoConsol').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) processDepcoConsolidatedOc(f); };
 $('fJsonImport').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importJsonBackup(f); };
 $('fBrandLogo').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) handleLogoUpload(f); };
 $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadPresentationTemplate(f); };
@@ -5563,6 +7345,10 @@ $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value
     if (savedBillingHist && typeof savedBillingHist === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...savedBillingHist };
     }
+    const savedDepcoHist = await rq(db.transaction('meta').objectStore('meta').get('depcoLpnHistory'));
+    if (Array.isArray(savedDepcoHist)) S.depcoLpnHistory = savedDepcoHist;
+    const savedTiendasHist = await rq(db.transaction('meta').objectStore('meta').get('tiendasConsolHistory'));
+    if (Array.isArray(savedTiendasHist)) S.tiendasConsolHistory = savedTiendasHist;
     const act = await rq(db.transaction('meta').objectStore('meta').get('active'));
     if (act && act.brand && act.season) {
       S.brand = act.brand;
