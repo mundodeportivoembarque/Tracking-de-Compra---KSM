@@ -121,6 +121,7 @@
 <input type="file" id="fDepcoBill" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fDepcoPts" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fDepcoConsol" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fTiendasDistFinal" accept=".xlsx,.xls,.csv" class="hidden">
 <div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"></div>
 <div id="busy" class="hidden fixed inset-0 bg-white/70 z-40 flex items-center justify-center text-sm font-medium">
   <span id="busyMsg" class="bg-white shadow px-4 py-2 rounded"></span>
@@ -1886,6 +1887,15 @@ async function promptOcType() {
            </button>
          </div>
        </div>` : ''}
+       <div class="pt-2 border-t">
+         <button id="btnChooseTiendasDistFinal" class="w-full text-left p-3 border-2 border-emerald-200 bg-emerald-50/40 rounded-lg hover:border-emerald-600 hover:bg-emerald-50 transition">
+           <div class="font-semibold text-emerald-950 flex items-center justify-between gap-2">
+             <span class="flex items-center gap-2"><i data-lucide="store" class="w-4 h-4 text-emerald-700"></i> Cargar Distribución Final de Tiendas (Referencia Compra por Centro)</span>
+             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">Tiendas · Centros</span>
+           </div>
+           <div class="text-xs text-slate-600 mt-1">Actualiza la columna <b>Referencia compra</b> en <b>P24</b> con la tienda/centro destino final (ej. <code>CONDADO</code>, <code>SCALA</code>, <code>QUICENTRO</code>, <code>SOL</code>, <code>WEB ADIDAS TIENDAS</code>) para saber exactamente en qué tienda está cada SKU.</div>
+         </button>
+       </div>
      </div>`,
     [['Cancelar', 'c']]
   );
@@ -1895,6 +1905,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#btnChooseBillingBrand')) { $('modal').classList.add('hidden'); openBillingWithPtsModal(); }
   if (e.target.closest('#btnChooseDepcoStep1')) { $('modal').classList.add('hidden'); openDepcoLpnStep1Modal(); }
   if (e.target.closest('#btnChooseDepcoStep2')) { $('modal').classList.add('hidden'); $('fDepcoConsol').click(); }
+  if (e.target.closest('#btnChooseTiendasDistFinal')) { $('modal').classList.add('hidden'); $('fTiendasDistFinal').click(); }
   if (e.target.closest('#btnChoosePtsAssign')) { $('modal').classList.add('hidden'); $('fPtsAssign').dataset.mode = ''; $('fPtsAssign').click(); }
   if (e.target.closest('#btnOpenLastBillingPreview')) { $('modal').classList.add('hidden'); viewBillingPreviewModal(S.lastBillingPreview); }
   if (e.target.closest('#btnChoosePrelim')) { $('modal').classList.add('hidden'); $('fOcPrelim').click(); }
@@ -2190,10 +2201,16 @@ async function loadOcFinalProducto(file) {
       const emb = norm(embRaw);
       const fFact = fdate(getRowVal(o, ['Fecha de factura']));
       const fIngEmb = fdate(getRowVal(o, ['Fecha de ingreso embarque', 'Fecha ingreso embarque', 'FECHA DE INGRESO EMBARQUE', 'FECHA INGRESO EMBARQUE', 'Fecha Ingreso', 'Fecha estimada ingreso', 'Fecha Arribo']));
-      const cIniRaw = getRowVal(o, ['Canal Inicial', 'CANAL INICIAL', 'Referencia compra', 'CANAL']);
+      const cIniRaw = getRowVal(o, ['Canal Inicial', 'CANAL INICIAL']);
       const cIni = norm(normalizarCanal(cIniRaw));
+      const refFinRaw = String(getRowVal(o, ['Referencia compra', 'REFERENCIA COMPRA', 'Referencia compra final', 'CENTRO', 'TIENDA', 'DESTINO TIENDA']) ?? '').trim().toUpperCase();
       const cFinalRaw = getRowVal(o, ['CANAL FINAL', 'CANAL FINAL ', 'CANAL_FINAL', 'Canal Final', 'CANAL']);
-      const cFinal = normalizarCanal(cFinalRaw);
+      const rawFinalTarget = normalizarCanal(cFinalRaw || refFinRaw);
+      const isStoreTarget = rawFinalTarget === 'TIENDAS' || (refFinRaw && resolverCanalInicial(refFinRaw, S.brand) === 'TIENDAS');
+      const cFinal = isStoreTarget ? 'TIENDAS' : rawFinalTarget;
+      const refFinalStore = (refFinRaw && refFinRaw !== 'TIENDAS')
+        ? refFinRaw
+        : ((cFinalRaw && normalizarCanal(cFinalRaw) !== 'TIENDAS' && resolverCanalInicial(cFinalRaw, S.brand) === 'TIENDAS') ? normalizarCanal(cFinalRaw) : '');
       const parsePrice = v => Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0;
       const fobMarca = parsePrice(getRowVal(o, ['FOB MARCA', 'FOB Marca', 'FOB_MARCA', 'FOB FINAL', 'FOB Final', 'FOB.1']));
       const pvpFin = parsePrice(getRowVal(o, ['PVP final', 'PVP FINAL', 'PVP Final', 'PVP.1', 'PVP_FINAL']));
@@ -2245,6 +2262,8 @@ async function loadOcFinalProducto(file) {
           if (fFact && !baseRow['Fecha de factura']) baseRow['Fecha de factura'] = fFact;
           if (fIngEmb) baseRow['Fecha de ingreso embarque'] = fIngEmb;
           if (cFinal) baseRow['Canal Final'] = cFinal;
+          if (refFinalStore) baseRow['Referencia compra'] = refFinalStore;
+          else if (cFinal && cFinal !== 'TIENDAS') baseRow['Referencia compra'] = cFinal;
           if (fobMarca > 0) {
             if (Math.abs((Number(baseRow['FOB']) || 0) - fobMarca) > 0.0001) fobUpdatedCount += take;
             baseRow['FOB'] = fobMarca;
@@ -2266,6 +2285,8 @@ async function loadOcFinalProducto(file) {
           if (fFact && !splitRow['Fecha de factura']) splitRow['Fecha de factura'] = fFact;
           if (fIngEmb) splitRow['Fecha de ingreso embarque'] = fIngEmb;
           if (cFinal) splitRow['Canal Final'] = cFinal;
+          if (refFinalStore) splitRow['Referencia compra'] = refFinalStore;
+          else if (cFinal && cFinal !== 'TIENDAS') splitRow['Referencia compra'] = cFinal;
           if (fobMarca > 0) {
             if (Math.abs((Number(splitRow['FOB']) || 0) - fobMarca) > 0.0001) fobUpdatedCount += rem;
             splitRow['FOB'] = fobMarca;
@@ -3839,9 +3860,18 @@ async function processDepcoConsolidatedOc(file) {
 
       const instrRaw = String(getRowVal(o, ['INSTRUCCIÓN', 'INSTRUCCION', 'Instrucción']) ?? '').trim().toUpperCase();
       const canalFinalRaw = normalizarCanal(getRowVal(o, ['CANAL FINAL', 'Canal Final', 'CANAL']));
+      const refTiendaExplicit = String(getRowVal(o, ['Referencia compra', 'REFERENCIA COMPRA', 'TIENDA', 'CENTRO']) ?? '').trim().toUpperCase();
       const isNoImportar = instrRaw.includes('NO IMPORTAR') || canalFinalRaw === 'DEPCO';
       const instruccion = isNoImportar ? 'NO IMPORTAR' : 'IMPORTAR';
-      const canalFinal = isNoImportar ? 'DEPCO' : (canalFinalRaw || normalizarCanal(getRowVal(o, ['CANAL FACTURA'])));
+      const isSpecificStoreInCanal = !isNoImportar && canalFinalRaw && canalFinalRaw !== 'TIENDAS' && resolverCanalInicial(canalFinalRaw, 'Adidas') === 'TIENDAS';
+      const refTiendaFinal = !isNoImportar
+        ? ((refTiendaExplicit && refTiendaExplicit !== 'TIENDAS') ? refTiendaExplicit : (isSpecificStoreInCanal ? canalFinalRaw : ''))
+        : '';
+      const canalFinal = isNoImportar
+        ? 'DEPCO'
+        : ((isSpecificStoreInCanal || (refTiendaFinal && resolverCanalInicial(refTiendaFinal, 'Adidas') === 'TIENDAS'))
+            ? 'TIENDAS'
+            : (canalFinalRaw || normalizarCanal(getRowVal(o, ['CANAL FACTURA']))));
 
       const emb = String(getRowVal(o, ['EMBARQUE', 'Embarque']) ?? '').trim() || 'CONSOLIDADO DEPCO';
       if (!detectedEmb && emb) detectedEmb = emb;
@@ -3877,6 +3907,7 @@ async function processDepcoConsolidatedOc(file) {
         canalFactura: normalizarCanal(getRowVal(o, ['CANAL FACTURA'])),
         instruccion,
         canalFinal,
+        refTiendaFinal,
         obs: String(getRowVal(o, ['OBS']) ?? '').trim(),
         embarque: emb,
         cm: String(getRowVal(o, ['CM']) ?? '').trim(),
@@ -4021,6 +4052,8 @@ async function processDepcoConsolidatedOc(file) {
           targetRow['Fecha de ingreso embarque'] = fechaIngreso;
         }
         targetRow['Canal Final'] = grp.canalFinal;
+        if (grp.refTiendaFinal) targetRow['Referencia compra'] = grp.refTiendaFinal;
+        else if (grp.canalFinal && grp.canalFinal !== 'TIENDAS' && grp.canalFinal !== 'DEPCO') targetRow['Referencia compra'] = grp.canalFinal;
         if (grp.fobMarca > 0) targetRow['FOB'] = grp.fobMarca;
         if (grp.pvpFinal > 0) targetRow['PVP Final'] = grp.pvpFinal;
         if (grp.p4Final > 0) targetRow['P4 Final'] = grp.p4Final;
@@ -4334,6 +4367,166 @@ async function nacionalizarDesdeDepco(selectedIds, embarqueFilter = '') {
     'Nacionalización DEPCO Completada',
     `Se pasaron <b>${fn(totalUnits)} unidades</b> desde <b>DEPCO</b> a <b>P24</b>.${tiendasExportedCount > 0 ? `<br><br>📥 Se descargó automáticamente el archivo <b>INGRESOS TIENDAS CONSOLIDADO</b> por <b>${fn(tiendasExportedCount)} unidades</b>.` : ''}`
   );
+}
+
+
+/* ============ CARGA DE DISTRIBUCIÓN FINAL DE TIENDAS (ACTUALIZA REFERENCIA COMPRA POR CENTRO/TIENDA EN P24) ============ */
+async function loadTiendasFinalDistribution(file) {
+  try {
+    busy(`Leyendo distribución final de Tiendas para ${S.brand}…`);
+    await tick();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+    const targetSheet = wb.Sheets['Hoja1'] ? 'Hoja1' : (wb.Sheets['TIENDAS'] ? 'TIENDAS' : wb.SheetNames[0]);
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[targetSheet], { defval: '', raw: true });
+    if (!raw.length) throw new Error('El archivo de distribución de Tiendas está vacío.');
+
+    const allBrandRows = await getAllBrandRows(S.brand);
+    const p24TiendasRows = allBrandRows.filter(r =>
+      st(r) === 'p' &&
+      Number(r['Cantidad'] || 0) > 0 &&
+      (normalizarCanal(r['Canal Final']) === 'TIENDAS' || normalizarCanal(r['Canal Inicial']) === 'TIENDAS')
+    );
+
+    if (!p24TiendasRows.length) {
+      busy();
+      return modal('Sin registros de TIENDAS en P24', `No se encontraron líneas de <b>TIENDAS</b> en etapa <b>P24</b> para ${S.brand}.`);
+    }
+
+    // Reiniciar marcas previas de distribución de tiendas para los embarques/facturas presentes en el archivo
+    const fileEmbs = new Set();
+    const fileFacts = new Set();
+    for (const o of raw) {
+      const e = norm(getRowVal(o, ['EMBARQUE', 'Embarque']));
+      const f = norm(getRowVal(o, ['Factura', 'Invoices', 'No FACTURA']));
+      if (e) fileEmbs.add(e);
+      if (f) fileFacts.add(f);
+    }
+
+    const changed = new Set();
+    p24TiendasRows.forEach(r => {
+      const rE = norm(r['EMBARQUE']);
+      const rF = norm(r['Factura']);
+      if ((fileEmbs.size && rE && fileEmbs.has(rE)) || (fileFacts.size && rF && fileFacts.has(rF))) {
+        if (r._tiendaDistApplied) {
+          delete r._tiendaDistApplied;
+          changed.add(r);
+        }
+      }
+    });
+
+    const parseNum = v => Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0;
+    const added = [];
+    let assignedUnits = 0;
+    const storeSummary = {};
+    const affectedSeasons = new Set();
+    const unmatched = [];
+
+    for (const o of raw) {
+      const cod = norm(getRowVal(o, ['Código', 'Codigo', 'Item Description', 'Material', 'SAP']));
+      const tal = normTalla(getRowVal(o, ['Talla', 'TALLA SAP', 'Talla SAP']));
+      const talM = normTalla(getRowVal(o, ['Talla marca', 'Item Size', 'Grid Value'])) || tal;
+      const qty = parseNum(getRowVal(o, ['Cantidad', 'QTY', 'LPN Detail Size Value', 'Delivery Quantity']));
+      const refTienda = String(getRowVal(o, ['Referencia compra', 'REFERENCIA COMPRA', 'Referencia compra final', 'CENTRO', 'TIENDA', 'Sucursal', 'Destino']) ?? '').trim().toUpperCase();
+      const emb = norm(getRowVal(o, ['EMBARQUE', 'Embarque']));
+      const fact = norm(getRowVal(o, ['Factura', 'Invoices', 'No FACTURA']));
+      const temp = norm(getRowVal(o, ['Temporada', 'Season']));
+
+      if (!cod || qty <= 0 || !refTienda) continue;
+
+      const candidates = p24TiendasRows.filter(r => {
+        if (st(r) !== 'p' || Number(r['Cantidad'] || 0) <= 0 || r._tiendaDistApplied) return false;
+        if (norm(r['Código']) !== cod) return false;
+        const rTal = normTalla(r['Talla']);
+        const rTalM = normTalla(r['Talla marca']);
+        if (tal && rTal !== tal && rTalM !== tal && rTal !== talM) return false;
+        if (emb && norm(r['EMBARQUE']) && norm(r['EMBARQUE']) !== emb) return false;
+        if (fact && norm(r['Factura']) && norm(r['Factura']) !== fact) return false;
+        if (temp && norm(r.season || r['Temporada']) !== temp) return false;
+        return true;
+      });
+
+      // Priorizar si ya tenía esa misma Referencia compra inicial
+      candidates.sort((a, b) => (norm(b['Referencia compra']) === norm(refTienda) ? 1 : 0) - (norm(a['Referencia compra']) === norm(refTienda) ? 1 : 0));
+
+      if (!candidates.length) {
+        unmatched.push({ cod: getRowVal(o, ['Código', 'Codigo', 'Material']), tal: tal || talM, tienda: refTienda, qty });
+        continue;
+      }
+
+      let rem = qty;
+      for (let i = 0; i < candidates.length && rem > 0; i++) {
+        const baseRow = candidates[i];
+        const avail = Number(baseRow['Cantidad'] || 0);
+        if (avail <= 0 || baseRow._tiendaDistApplied) continue;
+        affectedSeasons.add(baseRow.season || S.season);
+
+        if (avail <= rem) {
+          rem -= avail;
+          baseRow['Referencia compra'] = refTienda;
+          baseRow['Canal Final'] = 'TIENDAS';
+          baseRow._tiendaDistApplied = true;
+          assignedUnits += avail;
+          storeSummary[refTienda] = (storeSummary[refTienda] || 0) + avail;
+          changed.add(baseRow);
+        } else {
+          const splitRow = { ...baseRow };
+          delete splitRow.id;
+          splitRow['Cantidad'] = rem;
+          splitRow['Referencia compra'] = refTienda;
+          splitRow['Canal Final'] = 'TIENDAS';
+          splitRow._tiendaDistApplied = true;
+          splitRow['Valor Neto'] = calcValorNeto(splitRow);
+
+          baseRow['Cantidad'] = avail - rem;
+          baseRow['Valor Neto'] = calcValorNeto(baseRow);
+          assignedUnits += rem;
+          storeSummary[refTienda] = (storeSummary[refTienda] || 0) + rem;
+          rem = 0;
+          changed.add(baseRow);
+          added.push(splitRow);
+        }
+      }
+    }
+
+    busy();
+    if (!assignedUnits) {
+      return modal('Sin coincidencias en P24', 'No se encontraron líneas pendientes de TIENDAS en P24 que coincidan con los códigos, tallas y embarques del archivo.');
+    }
+
+    const storeBadges = Object.entries(storeSummary)
+      .sort((a, b) => b[1] - a[1])
+      .map(([stName, u]) => `<span class="inline-block bg-emerald-50 border border-emerald-200 text-emerald-950 px-2 py-0.5 rounded text-xs font-semibold mr-1.5 mb-1">${esc(stName)}: ${fn(u)} unid.</span>`)
+      .join('');
+
+    const ch = await modal(
+      'Confirmar Distribución Final de Tiendas',
+      `<div class="space-y-3 text-slate-700">
+         <p>Se actualizará la columna <b>Referencia compra</b> en <b>P24</b> para <b>${fn(assignedUnits)} unidades</b> con su tienda/centro destino final:</p>
+         <div class="p-3 rounded-lg bg-slate-50 border text-xs max-h-44 overflow-y-auto">${storeBadges}</div>
+         ${unmatched.length ? `<p class="text-xs text-amber-700"><b>${fn(unmatched.length)} filas</b> no encontraron saldo de TIENDAS en P24 para ese SKU/talla/embarque.</p>` : ''}
+       </div>`,
+      [['Cancelar', 'c'], ['Aplicar Centros a Base Maestra', 'ok', 1]]
+    );
+    if (ch !== 'ok') return;
+
+    busy('Guardando centros de Tiendas en base local…');
+    await tick();
+    if (changed.size) await dbPut([...changed]);
+    if (added.length) await dbAdd(added);
+    await reload();
+    busy();
+
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      for (const sName of affectedSeasons) {
+        await pushCloudBuySeason(S.brand, sName, true);
+      }
+    }
+
+    modal('Distribución de Tiendas Aplicada', `Se actualizó <b>Referencia compra</b> con la tienda destino final para <b>${fn(assignedUnits)} unidades</b> en <b>P24</b>.`);
+  } catch (e) {
+    busy();
+    modal('Error al cargar distribución de Tiendas', esc(e.message || e));
+  }
 }
 
 /* ============ MOTOR UNIFICADO DE FACTURACIÓN (ADIDAS Y REEBOK) ============ */
@@ -5761,6 +5954,7 @@ async function vSkuTrace() {
       cantidad: qty,
       fob,
       valorNeto: vn,
+      refCompra: String(r['Referencia compra'] || '').trim(),
       canalInicial: cIni,
       canalFinal: cFin,
       pvpIni: Number(r['PVP'] || 0),
@@ -5949,6 +6143,7 @@ async function vSkuTrace() {
               <th class="px-3 py-2 text-right">FOB</th>
               <th class="px-3 py-2">Canal Inicial</th>
               <th class="px-3 py-2">Canal Final</th>
+              <th class="px-3 py-2">Ref. Compra / Tienda</th>
               <th class="px-3 py-2">Embarque</th>
               <th class="px-3 py-2">Factura</th>
               <th class="px-3 py-2">F. Ingreso</th>
@@ -5966,6 +6161,7 @@ async function vSkuTrace() {
                 <td class="px-3 py-1.5 num">${ev.fob.toFixed(2)}</td>
                 <td class="px-3 py-1.5">${esc(ev.canalInicial)}</td>
                 <td class="px-3 py-1.5 font-bold text-indigo-950">${esc(ev.canalFinal || '—')}</td>
+                <td class="px-3 py-1.5 font-semibold text-emerald-900 whitespace-nowrap">${esc(ev.refCompra || '—')}</td>
                 <td class="px-3 py-1.5 font-semibold whitespace-nowrap">${esc(ev.embarque || '—')}</td>
                 <td class="px-3 py-1.5 whitespace-nowrap">${esc(ev.factura || '—')}</td>
                 <td class="px-3 py-1.5 whitespace-nowrap">${esc(ev.fechaIngreso || '—')}</td>
@@ -6369,6 +6565,7 @@ async function vCorp() {
 
 function vMx() {
   const detalles = [...new Set(S.rows.map(r => r['Detalle compra']).filter(Boolean))].sort();
+  const refsCompra = [...new Set(S.rows.map(r => r['Referencia compra']).filter(Boolean))].sort();
   const canalesIniciales = [...new Set(S.rows.map(r => r['Canal Inicial'] || r['Referencia compra']).filter(Boolean))].sort();
   const canalesFinales = [...new Set(S.rows.map(r => r['Canal Final']).filter(Boolean))].sort();
   const embarques = [...new Set(S.rows.map(r => r['EMBARQUE']).filter(Boolean))].sort();
@@ -6395,6 +6592,10 @@ function vMx() {
         <option value="__EMPTY__">Sin canal final (Pendiente)</option>
         ${canalesFinales.map(c => `<option>${esc(c)}</option>`).join('')}
       </select>
+      <select id="fref" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
+        <option value="">Todas las ref. compra / tiendas</option>
+        ${refsCompra.map(rc => `<option>${esc(rc)}</option>`).join('')}
+      </select>
       <select id="femb" class="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-white text-slate-700 font-medium shadow-2xs focus:border-slate-900 focus:outline-none">
         <option value="">Todos los embarques</option>
         <option value="__EMPTY__">Sin embarque asignado</option>
@@ -6417,6 +6618,7 @@ function vMx() {
   $('fdet').value = S.f.detalle;
   $('fc').value = S.f.canal;
   $('fcf').value = S.f.canalFinal;
+  $('fref').value = S.f.refCompra || '';
   $('femb').value = S.f.embarque;
   $('fq').value = S.f.quincena;
   $('fpc').value = S.f.precioCambio;
@@ -6428,6 +6630,7 @@ function vMx() {
       detalle: $('fdet').value,
       canal: $('fc').value,
       canalFinal: $('fcf').value,
+      refCompra: $('fref').value,
       embarque: $('femb').value,
       quincena: $('fq').value,
       precioCambio: $('fpc').value
@@ -6436,7 +6639,7 @@ function vMx() {
     clearTimeout(t);
     t = setTimeout(drawMx, 180);
   };
-  ['q', 'fe', 'fdet', 'fc', 'fcf', 'femb', 'fq', 'fpc'].forEach(i => $(i).oninput = go);
+  ['q', 'fe', 'fdet', 'fc', 'fcf', 'fref', 'femb', 'fq', 'fpc'].forEach(i => $(i).oninput = go);
   drawMx();
 }
 function drawMx() {
@@ -6445,6 +6648,7 @@ function drawMx() {
     if (f.etapa && st(r) !== f.etapa) return false;
     if (f.detalle && r['Detalle compra'] !== f.detalle) return false;
     if (f.canal && r['Canal Inicial'] !== f.canal && r['Referencia compra'] !== f.canal) return false;
+    if (f.refCompra && r['Referencia compra'] !== f.refCompra) return false;
     if (f.canalFinal) {
       if (f.canalFinal === '__EMPTY__') {
         if (r['Canal Final']) return false;
@@ -7322,6 +7526,7 @@ $('fDepcoPts').onchange = e => {
   }
 };
 $('fDepcoConsol').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) processDepcoConsolidatedOc(f); };
+$('fTiendasDistFinal').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadTiendasFinalDistribution(f); };
 $('fJsonImport').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importJsonBackup(f); };
 $('fBrandLogo').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) handleLogoUpload(f); };
 $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadPresentationTemplate(f); };
