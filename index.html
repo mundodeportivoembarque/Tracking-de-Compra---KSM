@@ -1812,6 +1812,14 @@ async function clearSeasonData() {
   busy('Borrando registros…');
   await tick();
   await dbDelSeason(sbKey());
+  if (String(S.brand).toUpperCase().includes('REEBOK') && Array.isArray(S.reebokDropAlerts)) {
+    const sNorm = norm(S.season);
+    S.reebokDropAlerts = S.reebokDropAlerts.filter(a => a.temporada && norm(a.temporada) !== sNorm);
+    await saveMeta();
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      pushCloudConfig().catch(() => {});
+    }
+  }
   await reload();
   busy();
       if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
@@ -3506,6 +3514,19 @@ async function syncBillingHistoryPts(brand, ptsMap, finalEmbOverride, finalFecha
   }
 }
 
+function purgeReebokDropAlertsByInvoices(revertedInvoicesSet) {
+  if (!revertedInvoicesSet || !revertedInvoicesSet.size || !Array.isArray(S.reebokDropAlerts)) return false;
+  const normInvs = new Set([...revertedInvoicesSet].map(x => norm(x)).filter(Boolean));
+  if (!normInvs.size) return false;
+  const beforeLen = S.reebokDropAlerts.length;
+  S.reebokDropAlerts = S.reebokDropAlerts.filter(a => {
+    const invs = String(a.invoices || '').split(/[,;/|]+/).map(x => norm(x)).filter(Boolean);
+    if (!invs.length) return true;
+    return !invs.some(inv => normInvs.has(inv));
+  });
+  return S.reebokDropAlerts.length !== beforeLen;
+}
+
 async function removeRevertedInvoicesFromBillingHistory(brand, revertedInvoicesSet) {
   if (!revertedInvoicesSet || !revertedInvoicesSet.size) return;
   const hist = getBrandBillingHistory(brand);
@@ -3524,7 +3545,10 @@ async function removeRevertedInvoicesFromBillingHistory(brand, revertedInvoicesS
       if (!batch.rows.length) hist.splice(i, 1);
     }
   }
-  if (changed) {
+  const dropsPurged = String(brand).toUpperCase().includes('REEBOK')
+    ? purgeReebokDropAlertsByInvoices(revertedInvoicesSet)
+    : false;
+  if (changed || dropsPurged) {
     await saveMeta();
     if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
       pushCloudConfig().catch(() => {});
@@ -5430,7 +5454,9 @@ async function processBrandBilling(file, ptsFile = null) {
     }
 
     if (isReebok && detectedReebokDrops.length > 0) {
-      S.reebokDropAlerts = [...detectedReebokDrops, ...(S.reebokDropAlerts || [])];
+      const newDropKeys = new Set(detectedReebokDrops.map(d => `${norm(d.invoices)}|${d.codNorm}|${normTalla(d.tallaSap)}`));
+      const keptExisting = (S.reebokDropAlerts || []).filter(old => !newDropKeys.has(`${norm(old.invoices)}|${old.codNorm}|${normTalla(old.tallaSap)}`));
+      S.reebokDropAlerts = [...detectedReebokDrops, ...keptExisting];
       await saveMeta();
       if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
         pushCloudConfig().catch(() => {});
@@ -5739,7 +5765,7 @@ function renderMain() {
     ['depco', 'Inventario DEPCO', 'warehouse', depcoBadge],
     ['billing', 'Detalle Facturación', 'receipt', billBadge],
     ['prices', 'Alertas de Precio', 'tag', alertBadge],
-    ['drop', 'Reporte de DROPS', 'ban', (S.brand === 'Reebok' && (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED').length > 0 ? `<span class="ml-1.5 px-1.5 py-0.2 text-[11px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">${fn((S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED').length)}</span>` : '')]
+    ['drop', 'Reporte de DROPS', 'ban', (() => { const p = (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED' && (!a.temporada || norm(a.temporada) === norm(S.season))); return (S.brand === 'Reebok' && p.length > 0) ? `<span class="ml-1.5 px-1.5 py-0.2 text-[11px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">${fn(p.length)}</span>` : ''; })()]
   ];
   const brandAccentBadge = S.brand === 'Adidas'
     ? 'bg-slate-900 text-white'
@@ -7440,6 +7466,12 @@ async function promptDeleteBillingBatch() {
   if (S.lastBillingPreview && S.lastBillingPreview.brand === S.brand) {
     S.lastBillingPreview = S.billingHistory[S.brand][0] || null;
   }
+  if (String(S.brand).toUpperCase().includes('REEBOK')) {
+    purgeReebokDropAlertsByInvoices(invoicesToRevert);
+    if (S.billingHistory[S.brand].length === 0) {
+      S.reebokDropAlerts = [];
+    }
+  }
 
   let revertedUnits = 0;
   if (alsoRevert && invoicesToRevert.size > 0) {
@@ -7953,8 +7985,26 @@ function pickPreferredReebokDropChannel(channels10A, dropQty = 0) {
 }
 
 /* ============ GESTIÓN DE DROPS PARCIALES REEBOK (ELECCIÓN DE CANAL POR SKU Y TALLA) ============ */
+async function dismissPendingReebokDrops() {
+  const activeSeasonNorm = norm(S.season);
+  const pendingCount = (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED' && (!a.temporada || norm(a.temporada) === activeSeasonNorm)).length;
+  if (!pendingCount) return;
+  const ok = await modal(
+    'Descartar Alertas de DROP Reebok',
+    `¿Deseas eliminar las <b>${fn(pendingCount)} alertas de DROP pendientes</b> de <b>Reebok ${esc(S.season)}</b>? Esta acción limpia la notificación sin modificar tu inventario.`,
+    [['Cancelar', 'c'], ['Sí, descartar alertas', 'yes', 'danger']]
+  );
+  if (ok !== 'yes') return;
+  S.reebokDropAlerts = (S.reebokDropAlerts || []).filter(a => !(a.status !== 'APPLIED' && (!a.temporada || norm(a.temporada) === activeSeasonNorm)));
+  await saveMeta();
+  if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+    pushCloudConfig().catch(() => {});
+  }
+  render();
+}
+
 async function promptReebokDropAssignmentModal(filterIds = null) {
-  const allAlerts = (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED');
+  const allAlerts = (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED' && (!a.temporada || norm(a.temporada) === norm(S.season)));
   const items = filterIds
     ? allAlerts.filter(a => filterIds.includes(a.id))
     : allAlerts;
@@ -8267,7 +8317,9 @@ function vDrop() {
   const d = S.rows.filter(r => st(r) === 'd');
   const u = d.reduce((a, r) => a + (r['Cantidad'] || 0), 0);
   const fobDrop = d.reduce((a, r) => a + (Number(r['Valor Neto']) || calcValorNeto(r)), 0);
-  const pendingRbkDrops = S.brand === 'Reebok' ? (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED') : [];
+  const pendingRbkDrops = S.brand === 'Reebok'
+    ? (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED' && (!a.temporada || norm(a.temporada) === norm(S.season)))
+    : [];
   const pendingRbkUnits = pendingRbkDrops.reduce((a, x) => a + Number(x.dropQty || 0), 0);
   const rbkDropBanner = pendingRbkDrops.length > 0
     ? `<div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -8278,9 +8330,14 @@ function vDrop() {
              <div class="text-xs text-rose-800 mt-0.5">Hay códigos con entrega parcial en facturación esperando que definas con Producto a qué canal inicial se le dropean esas unidades.</div>
            </div>
          </div>
-         <button type="button" class="btn !bg-rose-700 !text-white !border-rose-700 hover:!bg-rose-800" onclick="promptReebokDropAssignmentModal()">
-           <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Asignar Canales DROP Ahora
-         </button>
+         <div class="flex flex-wrap items-center gap-2">
+           <button type="button" class="btn btn-danger !text-xs" onclick="dismissPendingReebokDrops()">
+             <i data-lucide="trash-2" class="w-4 h-4"></i> Descartar Alertas
+           </button>
+           <button type="button" class="btn !bg-rose-700 !text-white !border-rose-700 hover:!bg-rose-800" onclick="promptReebokDropAssignmentModal()">
+             <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Asignar Canales DROP Ahora
+           </button>
+         </div>
        </div>`
     : '';
 
