@@ -4781,6 +4781,7 @@ async function processBrandBilling(file, ptsFile = null) {
     const rows10ABySeasonCod = new Map();
     const rows10AByCod = new Map();
     const allBrandRowsByCod = new Map();
+    const initial10ASnapshotByCod = new Map();
     allBrandRows.forEach(r => {
       const cod = norm(r['Código']);
       if (cod) {
@@ -4795,6 +4796,17 @@ async function processBrandBilling(file, ptsFile = null) {
         rows10ABySeasonCod.get(scKey).push(r);
         if (!rows10AByCod.has(cod)) rows10AByCod.set(cod, []);
         rows10AByCod.get(cod).push(r);
+
+        if (!initial10ASnapshotByCod.has(cod)) initial10ASnapshotByCod.set(cod, []);
+        initial10ASnapshotByCod.get(cod).push({
+          talla: normTalla(r['Talla']),
+          tallaMarca: normTalla(r['Talla marca']),
+          refCompra: String(r['Referencia compra'] || '').trim(),
+          canal: String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand) || 'SIN CANAL').trim(),
+          detalle: String(r['Detalle compra'] || 'COMPRA CANAL').trim(),
+          qty: Number(r['Cantidad'] || 0),
+          temporada: String(r.season || r['Temporada'] || S.season).trim()
+        });
       }
     });
 
@@ -5074,8 +5086,12 @@ async function processBrandBilling(file, ptsFile = null) {
           if (rCan && rCan === targetCanalNorm) sc += 25;
           else if (rCanUnif && rCanUnif === targetUnifNorm) sc += 12;
         } else if (isReebok) {
-          // Prioridad 1: si hay una fila en 10A con la misma cantidad exacta (ID + talla + cantidad)
-          if (Math.abs(Number(r['Cantidad']) - line.qty) < 0.001) sc += 20;
+          // Proteger canales prioritarios (Mayorista = 10, Tiendas = 20) para que queden intactos si solo se factura una parte,
+          // y consumir primero los canales sacrificables (Outlet = 100, Web = 90, Marathon = 75, TAF = 60).
+          const cRaw = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || '').trim();
+          const dropPrio = getReebokDropPriorityScore(cRaw);
+          sc += Math.round(dropPrio / 2); // Hasta +50 pts para canales de baja protección (Web/Outlet) y +5/+10 para Mayorista/Tiendas
+          if (Math.abs(Number(r['Cantidad']) - line.qty) < 0.001) sc += 15;
         }
 
         const isExtraRow = norm(r['Detalle compra']) === 'compraextra';
@@ -5237,6 +5253,21 @@ async function processBrandBilling(file, ptsFile = null) {
           if (!dRec.fob && Number(r['FOB']) > 0) dRec.fob = Number(r['FOB']);
         }
 
+        // Desglose inicial antes de facturar para esa talla (para mostrar qué canales estaban originalmente en filas)
+        const snapRows = (initial10ASnapshotByCod.get(dRec.codNorm) || []).filter(s =>
+          s.talla === talNorm || (gridNorm && s.tallaMarca === gridNorm) || s.talla === gridNorm
+        );
+        const initCanalMap = new Map();
+        for (const s of snapRows) {
+          const key = `${s.canal}|||${s.refCompra}|||${s.detalle}`;
+          if (!initCanalMap.has(key)) {
+            initCanalMap.set(key, { canal: s.canal, refCompra: s.refCompra, detalle: s.detalle, qty: 0 });
+          }
+          initCanalMap.get(key).qty += s.qty;
+        }
+        const initialChannelsList = [...initCanalMap.values()]
+          .sort((a, b) => getReebokDropPriorityScore(a.canal) - getReebokDropPriorityScore(b.canal));
+
         const channelsList = [...channelAvailMap.entries()]
           .map(([canal, avail]) => ({ canal, avail }))
           .sort((a, b) => getReebokDropPriorityScore(b.canal) - getReebokDropPriorityScore(a.canal));
@@ -5256,6 +5287,7 @@ async function processBrandBilling(file, ptsFile = null) {
           dropQty: diffQty,
           invoices: dRec.invoiceNumber || '',
           pts: dRec.ptKey || '',
+          initialChannels10A: initialChannelsList,
           channels10A: channelsList,
           selectedCanal: suggestedCanal,
           status: 'PENDING',
@@ -5371,9 +5403,12 @@ async function processBrandBilling(file, ptsFile = null) {
            <p class="text-rose-800">Se detectaron códigos con entrega parcial (<code>Reques quantity</code> &gt; <code>Final Delivery QTY TOTAL</code>). Al confirmar, podrás <b>elegir a qué canal inicial se le dropean estas unidades</b> junto con Producto (los códigos con 0 en toda su curva se mantuvieron intactos en 10A).</p>
            <div class="max-h-28 overflow-y-auto bg-white/80 rounded border border-rose-200 p-2 space-y-1 text-[11px]">
              ${detectedReebokDrops.map(d => `
-               <div class="flex flex-wrap items-center justify-between gap-2 border-b border-rose-100 pb-1 last:border-0 last:pb-0">
-                 <span>Fact. <b>${esc(d.invoices || '-')}</b> · <b>${esc(d.material)}</b> · Talla <b>${esc(d.tallaSap)}</b> (Ped: ${fn(d.reqTotal)} / Ent: ${fn(d.delivTotal)})</span>
-                 <span class="font-bold text-rose-700">DROP: ${fn(d.dropQty)} u. · Sugerido: <u>${esc(d.selectedCanal || 'Definir')}</u></span>
+               <div class="border-b border-rose-100 pb-1.5 last:border-0 last:pb-0 space-y-0.5">
+                 <div class="flex flex-wrap items-center justify-between gap-2">
+                   <span>Fact. <b>${esc(d.invoices || '-')}</b> · <b>${esc(d.material)}</b> · Talla <b>${esc(d.tallaSap)}</b> (Ped: ${fn(d.reqTotal)} / Ent: ${fn(d.delivTotal)})</span>
+                   <span class="font-bold text-rose-700">DROP: ${fn(d.dropQty)} u. · Sugerido: <u>${esc(d.selectedCanal || 'Definir')}</u></span>
+                 </div>
+                 ${(d.initialChannels10A && d.initialChannels10A.length) ? `<div class="text-[10px] text-slate-600 pl-2">Compra inicial en talla: ${d.initialChannels10A.map(ic => `<b>${esc(ic.canal)}</b> (${fn(ic.qty)})`).join(' · ')}</div>` : ''}
                </div>
              `).join('')}
            </div>
@@ -8013,17 +8048,17 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
     return modal('Sin DROPs pendientes', 'No hay diferencias de entrega pendientes por asignar canal en Reebok.');
   }
 
-  // Recalcular saldos 10A vigentes en tiempo real por (SKU + Talla) para mostrar exactamente cuánto queda en cada canal
+  // Recalcular saldos 10A vigentes y desglose inicial por canal en tiempo real por (SKU + Talla)
   const allReebokRows = await getAllBrandRows('Reebok');
   for (const it of items) {
     const talNorm = normTalla(it.tallaSap);
     const gridNorm = normTalla(it.gridValue);
-    const matching10A = allReebokRows.filter(r =>
-      st(r) === 'o' &&
+    const allSkuSizeRows = allReebokRows.filter(r =>
       Number(r['Cantidad'] || 0) > 0 &&
       norm(r['Código']) === norm(it.material) &&
       (normTalla(r['Talla']) === talNorm || (gridNorm && normTalla(r['Talla marca']) === gridNorm) || normTalla(r['Talla']) === gridNorm)
     );
+    const matching10A = allSkuSizeRows.filter(r => st(r) === 'o');
     const chMap = new Map();
     for (const r of matching10A) {
       const cIni = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || 'SIN CANAL').trim();
@@ -8032,6 +8067,24 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
     it.channels10A = [...chMap.entries()]
       .map(([canal, avail]) => ({ canal, avail }))
       .sort((a, b) => getReebokDropPriorityScore(b.canal) - getReebokDropPriorityScore(a.canal));
+
+    // Reconstruir desglose inicial de compra por canal (10A + P24 + DROP) para mostrarlo en filas como en la matriz
+    const initMap = new Map();
+    for (const r of allSkuSizeRows) {
+      const cIni = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || 'SIN CANAL').trim();
+      const refC = String(r['Referencia compra'] || cIni).trim();
+      const detC = String(r['Detalle compra'] || 'COMPRA CANAL').trim();
+      const k = `${cIni}|||${refC}|||${detC}`;
+      if (!initMap.has(k)) {
+        initMap.set(k, { canal: cIni, refCompra: refC, detalle: detC, qty: 0, avail10A: 0 });
+      }
+      const entry = initMap.get(k);
+      entry.qty += Number(r['Cantidad'] || 0);
+      if (st(r) === 'o') entry.avail10A += Number(r['Cantidad'] || 0);
+    }
+    it.initialChannels10A = [...initMap.values()]
+      .sort((a, b) => getReebokDropPriorityScore(a.canal) - getReebokDropPriorityScore(b.canal));
+
     if (!it.selectedCanal && it.channels10A.length > 0) {
       it.selectedCanal = pickPreferredReebokDropChannel(it.channels10A, it.dropQty);
     }
@@ -8039,14 +8092,14 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
 
   const totalDropUnits = items.reduce((a, x) => a + Number(x.dropQty || 0), 0);
   const m = $('modal');
-  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col p-6">
+  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-[95vw] xl:max-w-6xl max-h-[90vh] flex flex-col p-6">
     <div class="flex items-start justify-between gap-3 mb-2">
       <div>
         <div class="flex items-center gap-2">
           <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 text-[10px] font-bold uppercase">Alerta Reebok · Coordinación con Producto</span>
           <h3 class="text-lg font-bold text-slate-900">Asignar Canal a Unidades Dropeadas (${fn(totalDropUnits)} unid.)</h3>
         </div>
-        <p class="text-xs text-slate-500 mt-1">Separado por <b>Factura, SKU y Talla</b>. El sistema preselecciona automáticamente el canal a dropear respetando tus prioridades: <b>protege 1° Mayorista</b> y <b>2° Tiendas</b> (incl. Web Reebok Medeport/Tiendas), y prioriza dropear a <b>Outlet</b> o <b>Web</b> (antes que TAF).</p>
+        <p class="text-xs text-slate-500 mt-1">Separado por <b>Factura, SKU y Talla</b>. El sistema protege <b>1° Mayorista</b> y <b>2° Tiendas</b> (incl. Web Reebok Medeport/Tiendas) y prioriza dropear a <b>Outlet</b> o <b>Web</b> (antes que TAF), mostrando las filas de compra inicial por canal.</p>
       </div>
       <button type="button" id="btnExportRbkDropAlertsXlsx" class="btn !text-xs shrink-0">
         <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i> Exportar Alerta para Producto
@@ -8059,13 +8112,14 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
           <tr class="bg-slate-100 text-left text-slate-700 border-b">
             <th class="px-3 py-2 font-semibold">Factura</th>
             <th class="px-3 py-2 font-semibold">Sales Order</th>
-            <th class="px-3 py-2 font-semibold">Código (NEW Material)</th>
+            <th class="px-3 py-2 font-semibold">Código</th>
             <th class="px-3 py-2 font-semibold">Descripción</th>
-            <th class="px-3 py-2 font-semibold">Talla SAP</th>
-            <th class="px-3 py-2 text-right font-semibold">Pedido</th>
-            <th class="px-3 py-2 text-right font-semibold">Entregado</th>
-            <th class="px-3 py-2 text-right font-semibold text-rose-800">DROP Faltante</th>
-            <th class="px-3 py-2 font-semibold">Canales Disponibles en 10A</th>
+            <th class="px-3 py-2 font-semibold">Talla</th>
+            <th class="px-3 py-2 text-right font-semibold">Ped.</th>
+            <th class="px-3 py-2 text-right font-semibold">Ent.</th>
+            <th class="px-3 py-2 text-right font-semibold text-rose-800">DROP</th>
+            <th class="px-3 py-2 font-semibold min-w-[230px]">Compra Inicial por Canal (Filas en Talla)</th>
+            <th class="px-3 py-2 font-semibold">Saldo Disponible 10A</th>
             <th class="px-3 py-2 font-semibold">Canal Sugerido / a Dropear</th>
           </tr>
         </thead>
@@ -8074,19 +8128,33 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
             const opts = it.channels10A.map(c =>
               `<option value="${esc(c.canal)}" ${it.selectedCanal === c.canal ? 'selected' : ''}>${esc(c.canal)} (Disp. 10A: ${fn(c.avail)} u.)</option>`
             ).join('');
+            const initRowsHtml = (it.initialChannels10A && it.initialChannels10A.length)
+              ? `<div class="border rounded bg-slate-50/70 divide-y divide-slate-200/80 overflow-hidden">
+                   ${it.initialChannels10A.map(ic => `
+                     <div class="flex items-center justify-between gap-2 px-2 py-1 text-[11px]">
+                       <div class="truncate">
+                         <span class="font-bold text-slate-800">${esc(ic.canal)}</span>
+                         ${ic.refCompra && ic.refCompra !== ic.canal ? `<span class="text-slate-400"> (${esc(ic.refCompra)})</span>` : ''}
+                       </div>
+                       <span class="font-mono font-bold text-slate-900 shrink-0">${fn(ic.qty)} u.</span>
+                     </div>
+                   `).join('')}
+                 </div>`
+              : '<span class="text-slate-400 text-[11px]">Sin filas previas</span>';
             return `
-            <tr class="border-t hover:bg-rose-50/30">
+            <tr class="border-t hover:bg-rose-50/30 align-top">
               <td class="px-3 py-2 font-mono font-semibold text-slate-800 whitespace-nowrap">${esc(it.invoices || '—')}</td>
               <td class="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">${esc(it.pts || '—')}</td>
               <td class="px-3 py-2 font-mono font-bold text-slate-900 whitespace-nowrap">${esc(it.material)}</td>
-              <td class="px-3 py-2 max-w-[13rem] truncate" title="${esc(it.descripcion)}">${esc(it.descripcion || '—')}</td>
-              <td class="px-3 py-2 font-mono font-bold">${esc(it.tallaSap)}</td>
+              <td class="px-3 py-2 max-w-[12rem] truncate" title="${esc(it.descripcion)}">${esc(it.descripcion || '—')}</td>
+              <td class="px-3 py-2 font-mono font-bold whitespace-nowrap">${esc(it.tallaSap)}</td>
               <td class="px-3 py-2 num">${fn(it.reqTotal)}</td>
               <td class="px-3 py-2 num text-emerald-800 font-semibold">${fn(it.delivTotal)}</td>
               <td class="px-3 py-2 num font-extrabold text-rose-700 bg-rose-50/70">${fn(it.dropQty)}</td>
+              <td class="px-3 py-2">${initRowsHtml}</td>
               <td class="px-3 py-2 text-[11px] text-slate-600">
                 ${it.channels10A.length
-                  ? it.channels10A.map(c => `<span class="inline-block bg-slate-100 border px-1.5 py-0.5 rounded mr-1 mb-0.5">${esc(c.canal)}: <b>${fn(c.avail)}</b></span>`).join('')
+                  ? `<div class="space-y-1">${it.channels10A.map(c => `<div class="flex items-center justify-between gap-2 bg-amber-50/80 border border-amber-200 px-2 py-0.5 rounded"><span>${esc(c.canal)}</span><b>${fn(c.avail)} u.</b></div>`).join('')}</div>`
                   : '<span class="text-amber-700 font-semibold">Sin saldo 10A</span>'}
               </td>
               <td class="px-3 py-2">
@@ -8135,10 +8203,11 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
 
   $('btnExportRbkDropAlertsXlsx').onclick = () => {
     const aoa = [
-      ['Temporada', 'Factura', 'Sales Order', 'NEW Material', 'Descripción', 'Color', 'Talla SAP', 'Reques quantity', 'Final Delivery QTY TOTAL', 'Unidades DROP', 'Canales Disponibles en 10A', 'Canal Asignado DROP'],
+      ['Temporada', 'Factura', 'Sales Order', 'NEW Material', 'Descripción', 'Color', 'Talla SAP', 'Reques quantity', 'Final Delivery QTY TOTAL', 'Unidades DROP', 'Compra Inicial por Canal (Filas)', 'Canales Disponibles en 10A', 'Canal Asignado DROP'],
       ...items.map(it => [
         it.temporada, it.invoices, it.pts, it.material, it.descripcion, it.color, it.tallaSap,
         it.reqTotal, it.delivTotal, it.dropQty,
+        (it.initialChannels10A || []).map(c => `${c.canal}: ${c.qty}`).join(' | '),
         it.channels10A.map(c => `${c.canal} (${c.avail})`).join(', '),
         it.selectedCanal || 'PENDIENTE DEFINIR'
       ])
