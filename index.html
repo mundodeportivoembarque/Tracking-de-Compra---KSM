@@ -122,6 +122,7 @@
 <input type="file" id="fDepcoPts" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fDepcoConsol" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fTiendasDistFinal" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fCloudBundleImport" accept=".json,.ksmcloud" class="hidden">
 <div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"></div>
 <div id="busy" class="hidden fixed inset-0 bg-white/70 z-40 flex items-center justify-center text-sm font-medium">
   <span id="busyMsg" class="bg-white shadow px-4 py-2 rounded"></span>
@@ -335,6 +336,7 @@ const S = {
     connected: false,
     autoSync: true,
     lastSync: '',
+    lastError: '',
     filesStatus: {}
   },
   f: { q: '', etapa: '', detalle: '', canal: '', canalFinal: '', embarque: '', quincena: '', precioCambio: '' },
@@ -543,7 +545,155 @@ async function reload() {
   await refreshCounts();
   render();
 }
-/* ============ MOTOR DE SINCRONIZACIÓN ONEDRIVE / SHAREPOINT POR CARPETA (ARCHIVOS SEPARADOS) ============ */
+/* ============ MOTOR DE SINCRONIZACIÓN ONEDRIVE / SHAREPOINT + PAQUETE COMPARTIBLE OUTLOOK / NUBE ============ */
+async function buildFullCloudBundleObject() {
+  const seasonsData = {};
+  for (const b of Object.keys(S.seasons || {})) {
+    for (const s of (S.seasons[b] || [])) {
+      if (!s) continue;
+      const key = `${b}|${s}`;
+      const rows = (b === S.brand && s === S.season) ? S.rows : await dbSeason(key);
+      seasonsData[key] = {
+        brand: b,
+        season: s,
+        rows: rows.map(r => {
+          const o = { ...r };
+          delete o.id;
+          return o;
+        }),
+        template: getTplData(key)
+      };
+    }
+  }
+  return {
+    app: 'SISTEMA_TRACKING_KSM_CLOUD_BUNDLE',
+    version: '8.0',
+    exportedAt: new Date().toISOString(),
+    active: { brand: S.brand, season: S.season },
+    seasons: S.seasons,
+    logos: S.logos,
+    sizePairs: S.sizePairs || [],
+    sapCatalog: S.sapCatalog || {},
+    billingHistory: S.billingHistory || { Adidas: [], Reebok: [] },
+    depcoLpnHistory: S.depcoLpnHistory || [],
+    tiendasConsolHistory: S.tiendasConsolHistory || [],
+    seasonsData
+  };
+}
+
+async function exportOneDriveBundleFile() {
+  try {
+    busy('Generando paquete completo para OneDrive / Outlook…');
+    await tick();
+    const bundle = await buildFullCloudBundleObject();
+    const blob = new Blob([JSON.stringify(bundle)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `KSM_Tracking_Nube_Completa_${S.brand}_${S.season}_${stamp}.ksmcloud.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    S.cloud.lastSync = new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    S.cloud.lastError = '';
+    updateCloudBadge();
+    busy();
+  } catch (e) {
+    busy();
+    modal('Error al generar paquete para OneDrive', esc(e.message || e));
+  }
+}
+
+async function importOneDriveBundleFile(file) {
+  try {
+    busy('Restaurando información completa desde paquete de nube…');
+    await tick();
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data || !data.seasonsData || typeof data.seasonsData !== 'object') {
+      throw new Error('El archivo seleccionado no es un paquete válido de Sistema de Tracking - KSM.');
+    }
+    if (data.seasons) S.seasons = data.seasons;
+    if (data.logos) S.logos = { ...S.logos, ...data.logos };
+    if (Array.isArray(data.sizePairs)) S.sizePairs = data.sizePairs;
+    if (data.sapCatalog && typeof data.sapCatalog === 'object') {
+      S.sapCatalog = { ...S.sapCatalog, ...data.sapCatalog };
+    }
+    if (data.billingHistory && typeof data.billingHistory === 'object') {
+      S.billingHistory = { Adidas: [], Reebok: [], ...data.billingHistory };
+    }
+    if (Array.isArray(data.depcoLpnHistory)) S.depcoLpnHistory = data.depcoLpnHistory;
+    if (Array.isArray(data.tiendasConsolHistory)) S.tiendasConsolHistory = data.tiendasConsolHistory;
+
+    for (const [key, entry] of Object.entries(data.seasonsData)) {
+      const b = entry.brand || key.split('|')[0];
+      const s = entry.season || key.split('|')[1];
+      if (!b || !s) continue;
+      if (!S.seasons[b]) S.seasons[b] = [];
+      if (!S.seasons[b].includes(s)) S.seasons[b].push(s);
+      await dbDelSeason(key);
+      const cleanRows = (entry.rows || []).map(r => {
+        const row = { ...r, brand: b, season: s, sb: key };
+        if (row['FOB'] === undefined) row['FOB'] = 0;
+        row['Valor Neto'] = calcValorNeto(row);
+        if (!row['Detalle compra'] || !String(row['Detalle compra']).trim()) row['Detalle compra'] = 'COMPRA CANAL';
+        return row;
+      });
+      if (cleanRows.length) await dbAdd(cleanRows, 'Restaurando');
+      if (entry.template) {
+        S.templates[key] = entry.template;
+      }
+    }
+
+    if (data.active && data.active.brand && data.active.season) {
+      S.brand = data.active.brand;
+      S.season = data.active.season;
+    }
+
+    await saveMeta();
+    await reload();
+    S.cloud.lastSync = new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    S.cloud.lastError = '';
+    updateCloudBadge();
+    busy();
+    modal(
+      'Información Restaurada desde la Nube',
+      `Se restauraron todas las marcas, temporadas, compras, plantillas, catálogos SAP y facturación desde <b>${esc(file.name)}</b>.`
+    );
+  } catch (e) {
+    busy();
+    modal('Error al restaurar paquete de nube', esc(e.message || e));
+  }
+}
+
+async function syncAffectedToCloud(pairs = [[S.brand, S.season]]) {
+  if (!S.cloud.dirHandle || !S.cloud.autoSync) return;
+  try {
+    const ok = await ensureCloudPermission(false);
+    if (!ok) {
+      S.cloud.lastError = 'Permiso de carpeta OneDrive pendiente. Haz clic en "Reconectar" para sincronizar.';
+      updateCloudBadge();
+      return;
+    }
+    await pushCloudConfig();
+    const seen = new Set();
+    for (const [b, s] of pairs) {
+      const k = `${b || S.brand}|${s || S.season}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      await pushCloudBuySeason(b || S.brand, s || S.season, true);
+      await pushCloudTemplateSeason(b || S.brand, s || S.season, true);
+    }
+    S.cloud.lastError = '';
+    updateCloudBadge();
+  } catch (e) {
+    S.cloud.lastError = e.message || String(e);
+    updateCloudBadge();
+  }
+}
+
 function updateCloudBadge() {
   const b = $('cloudStatusBtn');
   if (!b) return;
@@ -970,13 +1120,24 @@ async function promptCloudSync() {
   }
   const hasDir = Boolean(S.cloud.dirHandle);
   const isConn = S.cloud.connected;
+  const isFileProtocol = window.location.protocol === 'file:';
+  const hasDirPicker = Boolean(window.showDirectoryPicker);
   const activeBuyFile = buyFileName(S.brand, S.season);
   const activeTplFile = tplFileName(S.brand, S.season);
 
   await modal(
-    'Carpeta Corporativa · OneDrive / SharePoint',
+    'Sincronización en la Nube · OneDrive / SharePoint / Outlook',
     `<div class="space-y-3 text-slate-700">
-       <p class="text-xs text-slate-600">Vincula una carpeta de tu <b>OneDrive o SharePoint</b> de Medeport. El sistema guarda <b>archivos independientes y comprimidos (.json.gz)</b> separados por cada <b>Compra</b> y cada <b>Plantilla de Presentación</b> de cada marca y temporada.</p>
+       ${isFileProtocol ? `
+       <div class="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-xs space-y-1">
+         <div class="font-bold">⚠️ Estás abriendo el HTML desde archivo local (file://)</div>
+         <div>En algunos navegadores o políticas de seguridad corporativas, abrir un <code>.html</code> directo desde disco puede bloquear el permiso de escritura automática en carpetas de OneDrive. Si eso ocurre, usa la opción <b>"Descargar Paquete Completo para OneDrive / Outlook"</b> o abre la app vía servidor local / GitHub Pages.</div>
+       </div>` : ''}
+
+       ${S.cloud.lastError ? `
+       <div class="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-xs">
+         <b>Aviso de sincronización:</b> ${esc(S.cloud.lastError)}
+       </div>` : ''}
 
        ${hasDir ? `
        <div class="p-3 rounded-lg ${isConn ? 'bg-sky-50 border-sky-200 text-sky-950' : 'bg-amber-50 border-amber-300 text-amber-950'} border text-xs space-y-1.5">
@@ -992,7 +1153,7 @@ async function promptCloudSync() {
          ${S.cloud.lastSync ? `<div>Última sincronización: <b>${esc(S.cloud.lastSync)}</b></div>` : ''}
          <label class="flex items-center gap-2 pt-1 cursor-pointer select-none">
            <input type="checkbox" id="chkCloudAutoSync" class="w-3.5 h-3.5 accent-sky-700" ${S.cloud.autoSync ? 'checked' : ''}>
-           <span>Autoguardar cada archivo individual automáticamente al hacer cambios</span>
+           <span>Autoguardar en la carpeta cada vez que cargas compras, OCs o plantillas</span>
          </label>
        </div>
 
@@ -1021,12 +1182,25 @@ async function promptCloudSync() {
        </div>
        ` : `
        <div class="pt-1">
-         <button id="btnCloudSelectFolder" class="w-full text-left p-4 border-2 border-dashed border-sky-300 rounded-lg hover:border-sky-600 hover:bg-sky-50/50 transition">
-           <div class="font-semibold text-slate-900 flex items-center gap-2"><i data-lucide="folder-sync" class="w-5 h-5 text-sky-700"></i> Seleccionar Carpeta de OneDrive / SharePoint</div>
-           <div class="text-xs text-slate-500 mt-1">Elige la carpeta compartida de Medeport en tu PC. El sistema organizará automáticamente archivos independientes como <code>Compra_Adidas_FW26.json.gz</code> y <code>Plantilla_Adidas_FW26.json.gz</code>.</div>
+         <button id="btnCloudSelectFolder" class="w-full text-left p-3.5 border-2 border-dashed border-sky-300 rounded-lg hover:border-sky-600 hover:bg-sky-50/50 transition ${!hasDirPicker ? 'opacity-60' : ''}">
+           <div class="font-semibold text-slate-900 flex items-center gap-2"><i data-lucide="folder-sync" class="w-5 h-5 text-sky-700"></i> Opción A: Vincular Carpeta Sincronizada de OneDrive / SharePoint</div>
+           <div class="text-xs text-slate-500 mt-1">Elige una carpeta local sincronizada con OneDrive/SharePoint para guardar <code>Compra_...json.gz</code> y <code>Plantilla_...json.gz</code>.</div>
          </button>
        </div>
        `}
+
+       <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-2">
+         <div class="font-bold text-slate-800 flex items-center gap-1.5"><i data-lucide="mail" class="w-4 h-4 text-indigo-700"></i> Opción B: Paquete Todo-en-Uno para OneDrive / Outlook / Equipo</div>
+         <p class="text-[11px] text-slate-600">Guarda absolutamente todo (compras, plantillas, tallas SAP, catálogo MAR SAP/EAN, facturación y DEPCO) en un solo archivo para dejarlo en OneDrive o enviarlo por correo Outlook y cargarlo en otro equipo sin depender de permisos de carpeta.</p>
+         <div class="flex flex-wrap gap-2 pt-1">
+           <button type="button" id="btnExportCloudBundle" class="btn btn-p !text-xs">
+             <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i> Exportar Paquete Nube (.json)
+           </button>
+           <button type="button" id="btnImportCloudBundle" class="btn !text-xs">
+             <i data-lucide="cloud-download" class="w-3.5 h-3.5 text-indigo-700"></i> Cargar Paquete Nube
+           </button>
+         </div>
+       </div>
      </div>`,
     [['Cerrar', 'c']]
   );
@@ -1044,6 +1218,8 @@ document.addEventListener('click', async e => {
   if (e.target.closest('#btnCloudPullSeason')) { $('modal').classList.add('hidden'); await pullFromCloudFolder(true); }
   if (e.target.closest('#btnCloudPushAll')) { $('modal').classList.add('hidden'); await pushAllSeparatedToCloud(false); }
   if (e.target.closest('#btnCloudPullAll')) { $('modal').classList.add('hidden'); await pullFromCloudFolder(false); }
+  if (e.target.closest('#btnExportCloudBundle')) { $('modal').classList.add('hidden'); await exportOneDriveBundleFile(); }
+  if (e.target.closest('#btnImportCloudBundle')) { $('modal').classList.add('hidden'); $('fCloudBundleImport').click(); }
   if (e.target.closest('#btnCloudUnlink')) {
     $('modal').classList.add('hidden');
     S.cloud.connected = false;
@@ -7527,6 +7703,7 @@ $('fDepcoPts').onchange = e => {
 };
 $('fDepcoConsol').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) processDepcoConsolidatedOc(f); };
 $('fTiendasDistFinal').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadTiendasFinalDistribution(f); };
+$('fCloudBundleImport').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importOneDriveBundleFile(f); };
 $('fJsonImport').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importJsonBackup(f); };
 $('fBrandLogo').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) handleLogoUpload(f); };
 $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadPresentationTemplate(f); };
