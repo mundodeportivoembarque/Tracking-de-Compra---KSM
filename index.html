@@ -323,6 +323,7 @@ const S = {
   sizePairs: [],
   sapCatalog: {},
   billingHistory: { Adidas: [], Reebok: [] },
+  reebokDropAlerts: [],
   depcoLpnHistory: [],
   tiendasConsolHistory: [],
   lastBillingPreview: null,
@@ -496,6 +497,7 @@ async function saveMeta() {
   t.objectStore('meta').put(S.sizePairs || [], 'sizePairs');
   t.objectStore('meta').put(S.sapCatalog || {}, 'sapCatalog');
   t.objectStore('meta').put(S.billingHistory || { Adidas: [], Reebok: [] }, 'billingHistory');
+  t.objectStore('meta').put(S.reebokDropAlerts || [], 'reebokDropAlerts');
   t.objectStore('meta').put(S.depcoLpnHistory || [], 'depcoLpnHistory');
   t.objectStore('meta').put(S.tiendasConsolHistory || [], 'tiendasConsolHistory');
   await txDone(t);
@@ -575,6 +577,7 @@ async function buildFullCloudBundleObject() {
     sizePairs: S.sizePairs || [],
     sapCatalog: S.sapCatalog || {},
     billingHistory: S.billingHistory || { Adidas: [], Reebok: [] },
+    reebokDropAlerts: S.reebokDropAlerts || [],
     depcoLpnHistory: S.depcoLpnHistory || [],
     tiendasConsolHistory: S.tiendasConsolHistory || [],
     seasonsData
@@ -624,6 +627,7 @@ async function importOneDriveBundleFile(file) {
     if (data.billingHistory && typeof data.billingHistory === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...data.billingHistory };
     }
+    if (Array.isArray(data.reebokDropAlerts)) S.reebokDropAlerts = data.reebokDropAlerts;
     if (Array.isArray(data.depcoLpnHistory)) S.depcoLpnHistory = data.depcoLpnHistory;
     if (Array.isArray(data.tiendasConsolHistory)) S.tiendasConsolHistory = data.tiendasConsolHistory;
 
@@ -803,6 +807,7 @@ async function pushCloudConfig() {
     sizePairs: S.sizePairs,
     sapCatalog: S.sapCatalog,
     billingHistory: S.billingHistory,
+    reebokDropAlerts: S.reebokDropAlerts || [],
     depcoLpnHistory: S.depcoLpnHistory,
     tiendasConsolHistory: S.tiendasConsolHistory
   };
@@ -969,6 +974,7 @@ async function pullFromCloudFolder(onlyActiveSeason = false, silent = false) {
       if (cfgData.billingHistory && typeof cfgData.billingHistory === 'object') {
         S.billingHistory = { Adidas: [], Reebok: [], ...cfgData.billingHistory };
       }
+      if (Array.isArray(cfgData.reebokDropAlerts)) S.reebokDropAlerts = cfgData.reebokDropAlerts;
       if (Array.isArray(cfgData.depcoLpnHistory)) S.depcoLpnHistory = cfgData.depcoLpnHistory;
       if (Array.isArray(cfgData.tiendasConsolHistory)) S.tiendasConsolHistory = cfgData.tiendasConsolHistory;
       await saveMeta();
@@ -4770,8 +4776,27 @@ async function processBrandBilling(file, ptsFile = null) {
 
     const parseNum = v => Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0;
 
+    // Pre-escaneo exclusivo para Reebok:
+    // Detectar qué códigos (NEW Material) tienen 0 en Final Delivery QTY TOTAL en TODA su curva de tallas.
+    // Esos códigos se dejan intactos en 10A disponible y NO entran al detalle de facturación ni a DROPS.
+    const rbkTotalDeliveredByCod = new Map();
+    const rbkZeroCurveSkus = new Set();
+    if (isReebok) {
+      for (const o of raw) {
+        const mat = String(getRowVal(o, ['NEW Material', 'New Material', 'Material', 'Código', 'Codigo']) ?? '').trim();
+        const cNorm = norm(mat);
+        if (!cNorm) continue;
+        const deliv = parseNum(getRowVal(o, ['Final Delivery QTY TOTAL', 'Final Delivery QTY', 'Cantidad', 'QTY']));
+        rbkTotalDeliveredByCod.set(cNorm, (rbkTotalDeliveredByCod.get(cNorm) || 0) + deliv);
+      }
+      for (const [cNorm, totDeliv] of rbkTotalDeliveredByCod.entries()) {
+        if (totDeliv <= 0) rbkZeroCurveSkus.add(cNorm);
+      }
+    }
+
     // 1. Parsear líneas crudas y agrupar bultos idénticos
     const groupedMap = new Map();
+    const rbkSizeDropMap = new Map(); // codNorm|tallaSap -> { material, codNorm, tallaSap, gridValue, reqTotal, delivTotal, dropQty, temporada, invNumbers: Set, ptKeys: Set }
     const fileInvoices = new Set();
     const duplicateInvoicesFound = new Set();
     const ptsInEmb = new Set();
@@ -4784,10 +4809,21 @@ async function processBrandBilling(file, ptsFile = null) {
         ? String(getRowVal(o, ['NEW Material', 'New Material', 'Material', 'Código', 'Codigo']) ?? '').trim()
         : String(getRowVal(o, ['Material', 'Código', 'Codigo', 'SAP']) ?? '').trim();
       const codNorm = norm(materialRaw);
+      if (!codNorm) continue;
+
+      const reqQtyRaw = parseNum(getRowVal(o, ['Reques quantity', 'Request quantity', 'Requested Quantity']));
       const qty = isReebok
         ? parseNum(getRowVal(o, ['Final Delivery QTY TOTAL', 'Final Delivery QTY', 'Cantidad', 'QTY']))
         : parseNum(getRowVal(o, ['Delivery quantity', 'Delivery Quantity', 'Invoiced Quantity', 'Cantidad', 'QTY']));
-      if (!codNorm || qty <= 0) continue;
+
+      if (isReebok) {
+        // Si toda la curva de tallas del código tiene Final Delivery QTY TOTAL === 0, omitir (queda en 10A disponible)
+        if (rbkZeroCurveSkus.has(codNorm)) continue;
+        // Si esta línea no tiene ni cantidad pedida ni entregada, omitir
+        if (qty <= 0 && reqQtyRaw <= 0) continue;
+      } else {
+        if (qty <= 0) continue;
+      }
 
       const invNum = isReebok
         ? String(getRowVal(o, ['No FACTURA ', 'No FACTURA', 'No Factura', 'Invoice Number', 'Factura']) ?? '').trim()
@@ -4926,16 +4962,52 @@ async function processBrandBilling(file, ptsFile = null) {
           color
         });
       }
+      const effectiveReq = reqQtyRaw > 0 ? reqQtyRaw : qty;
+
+      // En Reebok, acumular por (NEW Material + Talla SAP) el total pedido vs entregado para detectar DROPs parciales por talla
+      if (isReebok) {
+        const dropKey = `${codNorm}|${normTalla(chosenTallaSap)}`;
+        if (!rbkSizeDropMap.has(dropKey)) {
+          rbkSizeDropMap.set(dropKey, {
+            material: materialRaw,
+            codNorm,
+            tallaSap: chosenTallaSap,
+            gridValue: gridVal,
+            descripcion: descripcion || '',
+            color: color || '',
+            temporada: seasonDet,
+            fob: netPrice || 0,
+            reqTotal: 0,
+            delivTotal: 0,
+            invNumbers: new Set(),
+            ptKeys: new Set()
+          });
+        }
+        const dRec = rbkSizeDropMap.get(dropKey);
+        dRec.reqTotal += effectiveReq;
+        dRec.delivTotal += qty;
+        if (!dRec.descripcion && descripcion) dRec.descripcion = descripcion;
+        if (!dRec.color && color) dRec.color = color;
+        if (netPrice > 0) dRec.fob = netPrice;
+        if (invNum) dRec.invNumbers.add(invNum);
+        if (ptRaw) dRec.ptKeys.add(ptRaw);
+      }
+
       const g = groupedMap.get(groupKey);
-      g.reqQty += parseNum(getRowVal(o, ['Reques quantity'])) || qty;
+      g.reqQty += effectiveReq;
       g.qty += qty;
       if (netPrice > 0) g.netPrice = netPrice;
       g.netValue = Math.round((g.netPrice * g.qty) * 10000) / 10000 || (g.netValue + netValRaw);
       g.netValWithoutRound = Math.round((g.netWithoutRound * g.qty) * 10000) / 10000 || (g.netValWithoutRound + netValWithoutRound);
     }
 
+    // Filtrar para facturación las líneas que tienen entrega efectiva > 0 (las líneas de Reebok con qty === 0 ya quedaron registradas en rbkSizeDropMap)
+    for (const [gk, gv] of groupedMap.entries()) {
+      if (gv.qty <= 0) groupedMap.delete(gk);
+    }
+
     const consolidatedLines = [...groupedMap.values()];
-    if (!consolidatedLines.length) {
+    if (!consolidatedLines.length && !(isReebok && rbkSizeDropMap.size > 0)) {
       throw new Error('No se encontraron líneas facturadas válidas con Material y Cantidad > 0.');
     }
 
@@ -5117,6 +5189,55 @@ async function processBrandBilling(file, ptsFile = null) {
       }
     }
 
+    // Construir lista de alertas de DROP por talla para Reebok (donde Reques quantity > Final Delivery QTY TOTAL)
+    const detectedReebokDrops = [];
+    if (isReebok) {
+      for (const dRec of rbkSizeDropMap.values()) {
+        const diffQty = Math.round((dRec.reqTotal - dRec.delivTotal) * 100) / 100;
+        if (diffQty <= 0) continue;
+
+        const talNorm = normTalla(dRec.tallaSap);
+        const gridNorm = normTalla(dRec.gridValue);
+        const rem10ARows = (rows10AByCod.get(dRec.codNorm) || []).filter(r =>
+          st(r) === 'o' &&
+          Number(r['Cantidad'] || 0) > 0 &&
+          (normTalla(r['Talla']) === talNorm || (gridNorm && normTalla(r['Talla marca']) === gridNorm) || normTalla(r['Talla']) === gridNorm)
+        );
+
+        // Agrupar saldo restante en 10A por Canal Inicial
+        const channelAvailMap = new Map();
+        for (const r of rem10ARows) {
+          const cIni = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || 'SIN CANAL').trim();
+          channelAvailMap.set(cIni, (channelAvailMap.get(cIni) || 0) + Number(r['Cantidad'] || 0));
+          if (!dRec.descripcion && r['Descripción']) dRec.descripcion = r['Descripción'];
+          if (!dRec.color && r['Color']) dRec.color = r['Color'];
+          if (!dRec.fob && Number(r['FOB']) > 0) dRec.fob = Number(r['FOB']);
+        }
+
+        const channelsList = [...channelAvailMap.entries()].map(([canal, avail]) => ({ canal, avail }));
+        detectedReebokDrops.push({
+          id: `RBKDROP_${dRec.codNorm}_${talNorm}_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+          material: dRec.material,
+          codNorm: dRec.codNorm,
+          descripcion: dRec.descripcion,
+          color: dRec.color,
+          tallaSap: dRec.tallaSap,
+          gridValue: dRec.gridValue,
+          temporada: dRec.temporada,
+          fob: dRec.fob,
+          reqTotal: dRec.reqTotal,
+          delivTotal: dRec.delivTotal,
+          dropQty: diffQty,
+          invoices: [...dRec.invNumbers].join(', '),
+          pts: [...dRec.ptKeys].join(', '),
+          channels10A: channelsList,
+          selectedCanal: channelsList.length === 1 ? channelsList[0].canal : '',
+          status: 'PENDING',
+          createdAt: new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })
+        });
+      }
+    }
+
     // Construir objeto de Vista Previa desagregado por fila y canal inicial
     const buildPreviewSnapshot = () => {
       if (isReebok) {
@@ -5215,14 +5336,37 @@ async function processBrandBilling(file, ptsFile = null) {
          </div>`
       : '';
 
+    const rbkDropAlertHtml = (isReebok && detectedReebokDrops.length > 0)
+      ? `<div class="p-3 rounded-lg bg-rose-50 border-2 border-rose-300 text-rose-950 text-xs space-y-1.5">
+           <div class="font-bold text-rose-900 flex items-center gap-1.5">
+             <i data-lucide="alert-octagon" class="w-4 h-4 text-rose-700"></i>
+             ¡Alerta de Unidades No Entregadas (DROP Reebok): ${fn(detectedReebokDrops.length)} talla(s) · ${fn(detectedReebokDrops.reduce((a, x) => a + x.dropQty, 0))} unid.!
+           </div>
+           <p class="text-rose-800">Se detectaron códigos con entrega parcial (<code>Reques quantity</code> &gt; <code>Final Delivery QTY TOTAL</code>). Al confirmar, podrás <b>elegir a qué canal inicial se le dropean estas unidades</b> junto con Producto (los códigos con 0 en toda su curva se mantuvieron intactos en 10A).</p>
+           <div class="max-h-28 overflow-y-auto bg-white/80 rounded border border-rose-200 p-2 space-y-1 text-[11px]">
+             ${detectedReebokDrops.map(d => `
+               <div class="flex flex-wrap items-center justify-between gap-2 border-b border-rose-100 pb-1 last:border-0 last:pb-0">
+                 <span><b>${esc(d.material)}</b> · Talla <b>${esc(d.tallaSap)}</b> (Pedido: ${fn(d.reqTotal)} vs Entregado: ${fn(d.delivTotal)})</span>
+                 <span class="font-bold text-rose-700">DROP: ${fn(d.dropQty)} u. · Canales 10A: ${esc(d.channels10A.map(c => `${c.canal} (${fn(c.avail)})`).join(', ') || 'Sin saldo 10A')}</span>
+               </div>
+             `).join('')}
+           </div>
+         </div>`
+      : (isReebok && rbkZeroCurveSkus.size > 0
+          ? `<div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 text-xs">
+               ℹ️ <b>${fn(rbkZeroCurveSkus.size)} código(s)</b> con <code>Final Delivery QTY TOTAL = 0</code> en toda su curva de tallas se omitieron del detalle y permanecen disponibles en <b>10A</b>.
+             </div>`
+          : '');
+
     const ch = await modal(
       `Confirmar Detalle de Facturación ${S.brand} (10A → P24)`,
       `<div class="space-y-3 text-slate-700">
-         <p>Se procesaron <b>${fn(fileInvoices.size)} factura(s)</b> (${fn(disaggregatedLines.length)} filas desagregadas por canal · <b>${fn(totalFileUnits)} unid.</b> en archivo).</p>
+         <p>Se procesaron <b>${fn(fileInvoices.size)} factura(s)</b> (${fn(disaggregatedLines.length)} filas desagregadas por canal · <b>${fn(totalFileUnits)} unid.</b> entregadas).</p>
          <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs space-y-1.5">
            <div>✓ <b>Unidades a descontar de 10A a P24:</b> <span class="text-sm font-bold">${fn(matchedUnits)} unid.</span></div>
            <div>${breakdown || '<span class="text-slate-500">Sin unidades cruzadas en 10A</span>'}</div>
          </div>
+         ${rbkDropAlertHtml}
          ${ptsSummaryHtml}
          ${dupWarningHtml}
          ${unmatchedHtml}
@@ -5283,16 +5427,26 @@ async function processBrandBilling(file, ptsFile = null) {
       }
     }
 
-    const postChoice = await modal(
-      'Facturación Aplicada con Éxito',
-      `Se descontaron <b>${fn(matchedUnits)} unidades</b> de <b>10A</b> y pasaron a <b>P24</b>.<br>
-       <span class="text-xs text-slate-600">• Puedes visualizar las ${fn(S.lastBillingPreview.headers.length)} columnas transformadas (incluyendo filtros de <b>FORWARDER</b>) o descargar el Excel maestro.</span>`,
-      [['Cerrar', 'c'], ['Ver Vista Previa', 'view'], ['Descargar Excel Maestro', 'dl', 1]]
-    );
-    if (postChoice === 'view') {
-      viewBillingPreviewModal(S.lastBillingPreview);
-    } else if (postChoice === 'dl') {
-      exportBillingPreviewExcel(S.lastBillingPreview);
+    if (isReebok && detectedReebokDrops.length > 0) {
+      S.reebokDropAlerts = [...detectedReebokDrops, ...(S.reebokDropAlerts || [])];
+      await saveMeta();
+      if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+        pushCloudConfig().catch(() => {});
+      }
+      render();
+      await promptReebokDropAssignmentModal(detectedReebokDrops.map(d => d.id));
+    } else {
+      const postChoice = await modal(
+        'Facturación Aplicada con Éxito',
+        `Se descontaron <b>${fn(matchedUnits)} unidades</b> de <b>10A</b> y pasaron a <b>P24</b>.<br>
+         <span class="text-xs text-slate-600">• Puedes visualizar las ${fn(S.lastBillingPreview.headers.length)} columnas transformadas (incluyendo filtros de <b>FORWARDER</b>) o descargar el Excel maestro.</span>`,
+        [['Cerrar', 'c'], ['Ver Vista Previa', 'view'], ['Descargar Excel Maestro', 'dl', 1]]
+      );
+      if (postChoice === 'view') {
+        viewBillingPreviewModal(S.lastBillingPreview);
+      } else if (postChoice === 'dl') {
+        exportBillingPreviewExcel(S.lastBillingPreview);
+      }
     }
   } catch (e) {
     busy();
@@ -5583,7 +5737,7 @@ function renderMain() {
     ['depco', 'Inventario DEPCO', 'warehouse', depcoBadge],
     ['billing', 'Detalle Facturación', 'receipt', billBadge],
     ['prices', 'Alertas de Precio', 'tag', alertBadge],
-    ['drop', 'Reporte de DROPS', 'ban', '']
+    ['drop', 'Reporte de DROPS', 'ban', (S.brand === 'Reebok' && (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED').length > 0 ? `<span class="ml-1.5 px-1.5 py-0.2 text-[11px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">${fn((S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED').length)}</span>` : '')]
   ];
   const brandAccentBadge = S.brand === 'Adidas'
     ? 'bg-slate-900 text-white'
@@ -7608,11 +7762,335 @@ function vPrices() {
     </div>
   `;
 }
+
+/* ============ GESTIÓN DE DROPS PARCIALES REEBOK (ELECCIÓN DE CANAL POR SKU Y TALLA) ============ */
+async function promptReebokDropAssignmentModal(filterIds = null) {
+  const allAlerts = (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED');
+  const items = filterIds
+    ? allAlerts.filter(a => filterIds.includes(a.id))
+    : allAlerts;
+
+  if (!items.length) {
+    return modal('Sin DROPs pendientes', 'No hay diferencias de entrega pendientes por asignar canal en Reebok.');
+  }
+
+  // Recalcular saldos 10A vigentes en tiempo real por (SKU + Talla) para mostrar exactamente cuánto queda en cada canal
+  const allReebokRows = await getAllBrandRows('Reebok');
+  for (const it of items) {
+    const talNorm = normTalla(it.tallaSap);
+    const gridNorm = normTalla(it.gridValue);
+    const matching10A = allReebokRows.filter(r =>
+      st(r) === 'o' &&
+      Number(r['Cantidad'] || 0) > 0 &&
+      norm(r['Código']) === norm(it.material) &&
+      (normTalla(r['Talla']) === talNorm || (gridNorm && normTalla(r['Talla marca']) === gridNorm) || normTalla(r['Talla']) === gridNorm)
+    );
+    const chMap = new Map();
+    for (const r of matching10A) {
+      const cIni = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || 'SIN CANAL').trim();
+      chMap.set(cIni, (chMap.get(cIni) || 0) + Number(r['Cantidad'] || 0));
+    }
+    it.channels10A = [...chMap.entries()].map(([canal, avail]) => ({ canal, avail }));
+    if (!it.selectedCanal && it.channels10A.length === 1) {
+      it.selectedCanal = it.channels10A[0].canal;
+    }
+  }
+
+  const totalDropUnits = items.reduce((a, x) => a + Number(x.dropQty || 0), 0);
+  const m = $('modal');
+  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col p-6">
+    <div class="flex items-start justify-between gap-3 mb-2">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 text-[10px] font-bold uppercase">Alerta Reebok · Coordinación con Producto</span>
+          <h3 class="text-lg font-bold text-slate-900">Asignar Canal a Unidades Dropeadas (${fn(totalDropUnits)} unid.)</h3>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Estos códigos presentaron entrega parcial (<code>Reques quantity</code> &gt; <code>Final Delivery QTY TOTAL</code>). Selecciona por cada <b>SKU y Talla</b> a qué <b>Canal Inicial</b> se le restarán las unidades para pasarlas a <b>DROP-CANCELADO MARCA</b>.</p>
+      </div>
+      <button type="button" id="btnExportRbkDropAlertsXlsx" class="btn !text-xs shrink-0">
+        <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i> Exportar Alerta para Producto
+      </button>
+    </div>
+
+    <div class="border rounded-lg overflow-auto flex-1 my-3">
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="bg-slate-100 text-left text-slate-700 border-b">
+            <th class="px-3 py-2 font-semibold">Código (NEW Material)</th>
+            <th class="px-3 py-2 font-semibold">Descripción</th>
+            <th class="px-3 py-2 font-semibold">Talla SAP</th>
+            <th class="px-3 py-2 text-right font-semibold">Pedido</th>
+            <th class="px-3 py-2 text-right font-semibold">Entregado</th>
+            <th class="px-3 py-2 text-right font-semibold text-rose-800">DROP Faltante</th>
+            <th class="px-3 py-2 font-semibold">Canales Disponibles en 10A</th>
+            <th class="px-3 py-2 font-semibold">Canal a Dropear</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(it => {
+            const opts = it.channels10A.map(c =>
+              `<option value="${esc(c.canal)}" ${it.selectedCanal === c.canal ? 'selected' : ''}>${esc(c.canal)} (Disp. 10A: ${fn(c.avail)} u.)</option>`
+            ).join('');
+            return `
+            <tr class="border-t hover:bg-rose-50/30">
+              <td class="px-3 py-2 font-mono font-bold text-slate-900 whitespace-nowrap">${esc(it.material)}</td>
+              <td class="px-3 py-2 max-w-[13rem] truncate" title="${esc(it.descripcion)}">${esc(it.descripcion || '—')}</td>
+              <td class="px-3 py-2 font-mono font-bold">${esc(it.tallaSap)}</td>
+              <td class="px-3 py-2 num">${fn(it.reqTotal)}</td>
+              <td class="px-3 py-2 num text-emerald-800 font-semibold">${fn(it.delivTotal)}</td>
+              <td class="px-3 py-2 num font-extrabold text-rose-700 bg-rose-50/70">${fn(it.dropQty)}</td>
+              <td class="px-3 py-2 text-[11px] text-slate-600">
+                ${it.channels10A.length
+                  ? it.channels10A.map(c => `<span class="inline-block bg-slate-100 border px-1.5 py-0.5 rounded mr-1 mb-0.5">${esc(c.canal)}: <b>${fn(c.avail)}</b></span>`).join('')
+                  : '<span class="text-amber-700 font-semibold">Sin saldo 10A</span>'}
+              </td>
+              <td class="px-3 py-2">
+                <select class="rbk-drop-canal-sel border rounded px-2 py-1 text-xs bg-white font-semibold w-48" data-alert-id="${esc(it.id)}">
+                  <option value="">— Dejar pendiente —</option>
+                  ${opts}
+                  <option value="__CUSTOM__">Otro canal (Escribir)...</option>
+                </select>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
+      <span class="text-xs text-slate-500">Si aún no coordinas con Producto, puedes cerrar y resolverlo luego desde la pestaña <b>Reporte de DROPS</b>.</span>
+      <div class="flex gap-2">
+        <button type="button" id="btnCloseRbkDropModal" class="btn">Dejar Pendiente por Ahora</button>
+        <button type="button" id="btnApplyRbkDrops" class="btn !bg-rose-700 !text-white !border-rose-700 hover:!bg-rose-800">
+          <i data-lucide="check" class="w-4 h-4"></i> Aplicar DROPs a Canales Seleccionados
+        </button>
+      </div>
+    </div>
+  </div>`;
+  m.classList.remove('hidden');
+  icons();
+
+  m.querySelectorAll('.rbk-drop-canal-sel').forEach(sel => {
+    sel.onchange = () => {
+      if (sel.value === '__CUSTOM__') {
+        const custom = prompt('Escribe el nombre del Canal Inicial a dropear (ej. WEB, TIENDAS, MARATHON):');
+        if (custom && custom.trim()) {
+          const up = custom.trim().toUpperCase();
+          const opt = document.createElement('option');
+          opt.value = up;
+          opt.textContent = up;
+          opt.selected = true;
+          sel.insertBefore(opt, sel.lastElementChild);
+        } else {
+          sel.value = '';
+        }
+      }
+    };
+  });
+
+  $('btnExportRbkDropAlertsXlsx').onclick = () => {
+    const aoa = [
+      ['Temporada', 'Factura', 'Sales Order', 'NEW Material', 'Descripción', 'Color', 'Talla SAP', 'Reques quantity', 'Final Delivery QTY TOTAL', 'Unidades DROP', 'Canales Disponibles en 10A', 'Canal Asignado DROP'],
+      ...items.map(it => [
+        it.temporada, it.invoices, it.pts, it.material, it.descripcion, it.color, it.tallaSap,
+        it.reqTotal, it.delivTotal, it.dropQty,
+        it.channels10A.map(c => `${c.canal} (${c.avail})`).join(', '),
+        it.selectedCanal || 'PENDIENTE DEFINIR'
+      ])
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'ALERTA_DROPS_REEBOK');
+    XLSX.writeFile(wb, `ALERTA_DROPS_REEBOK_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  $('btnCloseRbkDropModal').onclick = () => {
+    m.classList.add('hidden');
+    render();
+  };
+
+  $('btnApplyRbkDrops').onclick = async () => {
+    const selections = new Map();
+    m.querySelectorAll('.rbk-drop-canal-sel').forEach(sel => {
+      if (sel.value && sel.value !== '__CUSTOM__') {
+        selections.set(sel.dataset.alertId, sel.value);
+      }
+    });
+    if (!selections.size) {
+      return alert('Selecciona al menos un Canal a Dropear en el desplegable o haz clic en "Dejar Pendiente por Ahora".');
+    }
+    m.classList.add('hidden');
+    await applyReebokDropsToDatabase(selections);
+  };
+}
+
+async function applyReebokDropsToDatabase(selectionsMap) {
+  busy('Aplicando DROPs a los canales seleccionados en Reebok…');
+  await tick();
+
+  const allReebokRows = await getAllBrandRows('Reebok');
+  const changed = new Set();
+  const added = [];
+  const affectedSeasons = new Set();
+  let totalDroppedUnits = 0;
+
+  for (const alertItem of (S.reebokDropAlerts || [])) {
+    if (alertItem.status === 'APPLIED') continue;
+    const chosenCanal = selectionsMap.get(alertItem.id);
+    if (!chosenCanal) continue;
+
+    const codNorm = norm(alertItem.material);
+    const talNorm = normTalla(alertItem.tallaSap);
+    const gridNorm = normTalla(alertItem.gridValue);
+    const targetCanalNorm = norm(chosenCanal);
+
+    const allSkuSize10A = allReebokRows.filter(r =>
+      st(r) === 'o' &&
+      Number(r['Cantidad'] || 0) > 0 &&
+      norm(r['Código']) === codNorm &&
+      (normTalla(r['Talla']) === talNorm || (gridNorm && normTalla(r['Talla marca']) === gridNorm) || normTalla(r['Talla']) === gridNorm)
+    );
+
+    // Priorizar el canal elegido por el usuario, luego otros canales si hiciera falta completar
+    allSkuSize10A.sort((a, b) => {
+      const ca = norm(a['Canal Inicial'] || resolverCanalInicial(a['Referencia compra'], 'Reebok'));
+      const cb = norm(b['Canal Inicial'] || resolverCanalInicial(b['Referencia compra'], 'Reebok'));
+      return (cb === targetCanalNorm ? 1 : 0) - (ca === targetCanalNorm ? 1 : 0);
+    });
+
+    let rem = Number(alertItem.dropQty || 0);
+    for (let i = 0; i < allSkuSize10A.length && rem > 0; i++) {
+      const baseRow = allSkuSize10A[i];
+      const avail = Number(baseRow['Cantidad'] || 0);
+      if (avail <= 0 || st(baseRow) !== 'o') continue;
+      affectedSeasons.add(baseRow.season || S.season);
+
+      if (avail <= rem) {
+        rem -= avail;
+        totalDroppedUnits += avail;
+        baseRow['Etapa'] = ED;
+        baseRow['Canal Final'] = chosenCanal;
+        if (alertItem.invoices) baseRow['Factura'] = alertItem.invoices;
+        baseRow['OBS'] = `DROP REEBOK (${chosenCanal})`.trim();
+        baseRow['Valor Neto'] = calcValorNeto(baseRow);
+        changed.add(baseRow);
+      } else {
+        const dropSplit = { ...baseRow };
+        delete dropSplit.id;
+        dropSplit['Cantidad'] = rem;
+        dropSplit['Etapa'] = ED;
+        dropSplit['Canal Final'] = chosenCanal;
+        if (alertItem.invoices) dropSplit['Factura'] = alertItem.invoices;
+        dropSplit['OBS'] = `DROP REEBOK (${chosenCanal})`.trim();
+        dropSplit['Valor Neto'] = calcValorNeto(dropSplit);
+
+        baseRow['Cantidad'] = avail - rem;
+        baseRow['Valor Neto'] = calcValorNeto(baseRow);
+        totalDroppedUnits += rem;
+        rem = 0;
+        changed.add(baseRow);
+        added.push(dropSplit);
+      }
+    }
+
+    // Si no había suficiente saldo 10A en base, registrar el remanente directamente en DROP para que quede trazabilidad
+    if (rem > 0) {
+      const newDropRow = {
+        'Seguimiento': '',
+        'Detalle compra': 'COMPRA CANAL',
+        'Temporada': alertItem.temporada || S.season,
+        'Marca': 'Reebok',
+        'Grupo': '',
+        'Categoría': '',
+        'Actividad': '',
+        'Línea': '',
+        'Referencia compra': chosenCanal,
+        'Canal Inicial': chosenCanal,
+        'Canal Final': chosenCanal,
+        'Código': alertItem.material,
+        'Color': alertItem.color || '',
+        'Talla': alertItem.tallaSap,
+        'Talla marca': alertItem.gridValue || alertItem.tallaSap,
+        'Descripción': alertItem.descripcion || '',
+        'Género': '',
+        'Fecha de entrega': '',
+        'Fecha de venta': '',
+        'Cantidad': rem,
+        'FOB': alertItem.fob || 0,
+        'Valor Neto': Math.round((alertItem.fob || 0) * rem * 10000) / 10000,
+        'PVP': 0,
+        'PVP Final': 0,
+        'PVP retail': 0,
+        'P4': 0,
+        'P4 Final': 0,
+        'PMY': 0,
+        'PMY Final': 0,
+        'Etapa': ED,
+        'Régimen': 'CONSUMO',
+        'LPN ID': '',
+        'Documento': '',
+        'EMBARQUE': '',
+        'Fecha estimada inicio': '',
+        'Fecha real inicio': '',
+        'Fecha estimada fin': '',
+        'Fecha real fin': '',
+        'Factura': alertItem.invoices || '',
+        'Delivery': alertItem.pts || '',
+        'Fecha de factura': '',
+        'Fecha de ingreso embarque': '',
+        'OBS': `DROP REEBOK (${chosenCanal})`,
+        sb: `Reebok|${alertItem.temporada || S.season}`,
+        brand: 'Reebok',
+        season: alertItem.temporada || S.season
+      };
+      added.push(newDropRow);
+      totalDroppedUnits += rem;
+      affectedSeasons.add(alertItem.temporada || S.season);
+    }
+
+    alertItem.selectedCanal = chosenCanal;
+    alertItem.status = 'APPLIED';
+    alertItem.appliedAt = new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  if (changed.size) await dbPut([...changed]);
+  if (added.length) await dbAdd(added);
+  await saveMeta();
+  await reload();
+  busy();
+
+  if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+    await pushCloudConfig();
+    for (const sName of affectedSeasons) {
+      await pushCloudBuySeason('Reebok', sName, true);
+    }
+  }
+
+  modal('DROPs Aplicados con Éxito', `Se pasaron <b>${fn(totalDroppedUnits)} unidades</b> a estado <b>DROP-CANCELADO MARCA</b> en los canales seleccionados.`);
+}
+
 function vDrop() {
   const d = S.rows.filter(r => st(r) === 'd');
   const u = d.reduce((a, r) => a + (r['Cantidad'] || 0), 0);
   const fobDrop = d.reduce((a, r) => a + (Number(r['Valor Neto']) || calcValorNeto(r)), 0);
+  const pendingRbkDrops = S.brand === 'Reebok' ? (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED') : [];
+  const pendingRbkUnits = pendingRbkDrops.reduce((a, x) => a + Number(x.dropQty || 0), 0);
+  const rbkDropBanner = pendingRbkDrops.length > 0
+    ? `<div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+         <div class="flex items-start gap-3">
+           <div class="p-2 rounded-lg bg-rose-100 text-rose-700 shrink-0"><i data-lucide="alert-octagon" class="w-5 h-5"></i></div>
+           <div>
+             <div class="font-bold text-rose-950 text-sm">Alertas de DROP Reebok Pendientes por Asignar Canal (${fn(pendingRbkDrops.length)} talla(s) · ${fn(pendingRbkUnits)} unid.)</div>
+             <div class="text-xs text-rose-800 mt-0.5">Hay códigos con entrega parcial en facturación esperando que definas con Producto a qué canal inicial se le dropean esas unidades.</div>
+           </div>
+         </div>
+         <button type="button" class="btn !bg-rose-700 !text-white !border-rose-700 hover:!bg-rose-800" onclick="promptReebokDropAssignmentModal()">
+           <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Asignar Canales DROP Ahora
+         </button>
+       </div>`
+    : '';
+
   $('view').innerHTML = `
+    ${rbkDropBanner}
     <div class="grid grid-cols-2 gap-3 max-w-lg">
       ${kpi('Unidades perdidas (DROP)', fn(u), 'Cancelado por marca', 'border-l-4 border-l-red-600', fobDrop)}
       ${kpi('Líneas en DROP', fn(d.length), 'Registros afectados', 'border-l-4 border-l-red-600')}
@@ -7727,6 +8205,8 @@ $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value
     if (savedBillingHist && typeof savedBillingHist === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...savedBillingHist };
     }
+    const savedRbkDrops = await rq(db.transaction('meta').objectStore('meta').get('reebokDropAlerts'));
+    if (Array.isArray(savedRbkDrops)) S.reebokDropAlerts = savedRbkDrops;
     const savedDepcoHist = await rq(db.transaction('meta').objectStore('meta').get('depcoLpnHistory'));
     if (Array.isArray(savedDepcoHist)) S.depcoLpnHistory = savedDepcoHist;
     const savedTiendasHist = await rq(db.transaction('meta').objectStore('meta').get('tiendasConsolHistory'));
