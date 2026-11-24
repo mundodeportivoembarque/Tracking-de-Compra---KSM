@@ -1423,7 +1423,7 @@ function viewPresentationTemplate() {
       </div>
       <div class="flex items-center gap-2">
         <button type="button" id="btnExportTplXlsx" class="btn !bg-emerald-700 !text-white !border-emerald-700">
-          <i data-lucide="download" class="w-4 h-4"></i>Descargar Plantilla Excel
+          <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>Descargar Plantilla Excel
         </button>
         <button type="button" id="btnCloseTplView" class="btn">Cerrar</button>
       </div>
@@ -3565,7 +3565,7 @@ function viewBillingPreviewModal(previewObj) {
       </div>
       <div class="flex items-center gap-2">
         <button type="button" id="btnExportBillPrevXlsx" class="btn !bg-emerald-700 !text-white !border-emerald-700">
-          <i data-lucide="download" class="w-4 h-4"></i>Descargar Excel Maestro
+          <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>Descargar Excel Maestro
         </button>
         <button type="button" id="btnCloseBillPrev" class="btn">Cerrar</button>
       </div>
@@ -5769,14 +5769,14 @@ function renderMain() {
         <div class="flex flex-wrap items-center gap-2">
           <!-- 1. Acción Principal: Cargar OC / Facturación -->
           <button type="button" class="btn btn-p shadow-xs" onclick="promptOcType()">
-            <i data-lucide="git-merge" class="w-4 h-4"></i>
+            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
             <span>Cargar OC / Facturación</span>
           </button>
 
           <!-- 2. Menú: Compras (Inicial / Extra) -->
           <div class="dd-wrap">
             <button type="button" class="btn" onclick="toggleHeaderMenu('ddCompras', event)">
-              <i data-lucide="shopping-bag" class="w-4 h-4 text-slate-600"></i>
+              <svg class="w-4 h-4 text-slate-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
               <span>Compras</span>
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
             </button>
@@ -5802,7 +5802,7 @@ function renderMain() {
           <!-- 3. Menú: Catálogos Maestros (Plantilla + Tallas SAP) -->
           <div class="dd-wrap">
             <button type="button" class="btn !bg-violet-50/70 !text-violet-950 !border-violet-200 hover:!bg-violet-100/70" onclick="toggleHeaderMenu('ddMaestros', event)">
-              <i data-lucide="database" class="w-4 h-4 text-violet-700"></i>
+              <svg class="w-4 h-4 text-violet-700 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
               <span>Maestros</span>
               ${mastersTotal > 0 ? `<span class="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-violet-200 text-violet-900">${mastersTotal}/3</span>` : ''}
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-violet-500"></i>
@@ -5844,14 +5844,14 @@ function renderMain() {
 
           <!-- 4. Exportar Excel (Acción directa clave) -->
           <button type="button" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800" onclick="promptExcelExport()">
-            <i data-lucide="download" class="w-4 h-4"></i>
+            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
             <span>Exportar Excel</span>
           </button>
 
           <!-- 5. Menú: Nube & Respaldos (OneDrive + JSON) -->
           <div class="dd-wrap">
             <button type="button" class="btn !bg-sky-50/80 !text-sky-950 !border-sky-200 hover:!bg-sky-100/80" onclick="toggleHeaderMenu('ddNube', event)">
-              <i data-lucide="cloud" class="w-4 h-4 text-sky-700"></i>
+              <svg class="w-4 h-4 text-sky-700 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
               <span>Nube y Respaldos</span>
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-sky-500"></i>
             </button>
@@ -5882,15 +5882,24 @@ function renderMain() {
             </div>
           </div>
 
-          <!-- 6. Menú: Administración / Mantenimiento (Revertir OCs / Borrar temporada) -->
+          <!-- 6. Menú: Borrar / Revertir (Basurero Rojo con SVG inline siempre visible) -->
           <div class="dd-wrap">
-            <button type="button" class="btn !px-2.5 text-slate-600 hover:text-slate-900" onclick="toggleHeaderMenu('ddAdmin', event)" title="Opciones de reversión y limpieza">
-              <i data-lucide="more-vertical" class="w-4 h-4"></i>
+            <button type="button" class="btn btn-danger !px-3" onclick="toggleHeaderMenu('ddAdmin', event)" title="Borrar detalles de facturación, revertir OCs o vaciar temporada">
+              <svg class="w-4 h-4 text-red-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+              <span>Borrar</span>
+              <svg class="w-3.5 h-3.5 text-red-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </button>
-            <div id="ddAdmin" class="dd-menu hidden">
-              <div class="dd-lbl">Mantenimiento y Reversión</div>
+            <div id="ddAdmin" class="dd-menu hidden !min-w-[285px]">
+              <div class="dd-lbl text-red-700">Opciones de Borrado y Reversión</div>
+              <button type="button" class="dd-item danger" onclick="$('ddAdmin').classList.add('hidden'); promptDeleteBillingBatch()">
+                <svg class="w-4 h-4 text-red-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                <div>
+                  <div class="font-semibold">Borrar detalle de facturación</div>
+                  <div class="text-[11px] text-slate-500">Elimina cargas de facturación de ${esc(S.brand)}</div>
+                </div>
+              </button>
               <button type="button" class="dd-item warn" onclick="$('ddAdmin').classList.add('hidden'); promptDeleteOcs()">
-                <i data-lucide="rotate-ccw" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                <svg class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                 <div>
                   <div class="font-semibold">Revertir / Borrar OCs</div>
                   <div class="text-[11px] text-slate-500">Devuelve facturas seleccionadas a 10A</div>
@@ -5898,7 +5907,7 @@ function renderMain() {
               </button>
               <div class="dd-sep"></div>
               <button type="button" class="dd-item danger" onclick="$('ddAdmin').classList.add('hidden'); clearSeasonData()">
-                <i data-lucide="trash-2" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                <svg class="w-4 h-4 text-red-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                 <div>
                   <div class="font-semibold">Borrar compra total</div>
                   <div class="text-[11px] text-red-600/80">Vacía todos los registros de ${esc(S.season)}</div>
@@ -7360,6 +7369,146 @@ function exportFilteredBillingExcel(filteredRows, headers) {
   XLSX.writeFile(wb, `DETALLE_FACTURACION_FILTRADO_${S.brand}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
+
+/* ============ BORRAR UN DETALLE DE FACTURACIÓN CARGADO (Y OPCIONALMENTE REVERTIR SU IMPACTO EN P24 → 10A) ============ */
+async function promptDeleteBillingBatch() {
+  const hist = getBrandBillingHistory(S.brand);
+  if (!hist.length) {
+    return modal('Sin detalles de facturación', `No hay cargas de Detalle de Facturación guardadas en el historial de <b>${esc(S.brand)}</b>.`);
+  }
+
+  const isRbk = String(S.brand).toUpperCase().includes('REEBOK');
+  const qtyIdx = isRbk ? 12 : 11;
+  const netValIdx = isRbk ? 17 : 13;
+
+  const listHtml = hist.map((b, idx) => {
+    const uSum = (b.rows || []).reduce((a, r) => a + (Number(r.cells && r.cells[qtyIdx]) || 0), 0);
+    const vSum = (b.rows || []).reduce((a, r) => a + (Number(r.cells && r.cells[netValIdx]) || 0), 0);
+    const invText = (b.invoices && b.invoices.length) ? b.invoices.slice(0, 8).join(', ') + (b.invoices.length > 8 ? ` (+${b.invoices.length - 8})` : '') : 'Sin factura';
+    return `
+      <label class="flex items-start justify-between gap-3 p-3 border rounded-lg hover:bg-rose-50/40 cursor-pointer">
+        <div class="flex items-start gap-2.5 min-w-0">
+          <input type="radio" name="rbBillBatch" value="${esc(b.id)}" class="mt-1 accent-rose-700" ${idx === 0 ? 'checked' : ''}>
+          <div class="min-w-0">
+            <div class="font-bold text-slate-900 text-xs truncate">${esc(b.fileName || 'Detalle de Facturación')}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Cargado: <b>${esc(b.uploadedAt || '—')}</b> · ${fn((b.rows || []).length)} líneas</div>
+            <div class="text-[11px] text-indigo-900 font-mono truncate mt-0.5" title="${esc((b.invoices || []).join(', '))}">Facturas: ${esc(invText)}</div>
+          </div>
+        </div>
+        <div class="text-right shrink-0 text-xs">
+          <div class="font-bold text-slate-900">${fn(uSum)} unid.</div>
+          <div class="font-mono text-[11px] text-slate-600">${fmoney(vSum)}</div>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  const ch = await modal(
+    `Borrar Detalle de Facturación · ${esc(S.brand)}`,
+    `<div class="space-y-3 text-slate-700">
+       <p class="text-xs text-slate-600">Selecciona el detalle de facturación que deseas eliminar de <b>${esc(S.brand)}</b>:</p>
+       <div class="space-y-2 max-h-64 overflow-y-auto pr-1">${listHtml}</div>
+       <label class="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-950 cursor-pointer">
+         <input type="checkbox" id="chkRevertP24OnBillDelete" class="mt-0.5 accent-amber-700" checked>
+         <span><b>También revertir las facturas de este detalle en la base de seguimiento (P24 → 10A)</b> para devolver sus unidades a saldo 10A disponible.</span>
+       </label>
+     </div>`,
+    [['Cancelar', 'c'], ['Eliminar Detalle', 'del', 'danger']]
+  );
+  if (ch !== 'del') return;
+
+  const selRadio = document.querySelector('input[name="rbBillBatch"]:checked');
+  const batchId = selRadio ? selRadio.value : hist[0].id;
+  const alsoRevert = $('chkRevertP24OnBillDelete') ? $('chkRevertP24OnBillDelete').checked : false;
+
+  const targetBatch = hist.find(b => b.id === batchId);
+  if (!targetBatch) return;
+
+  busy('Eliminando detalle de facturación…');
+  await tick();
+
+  const invoicesToRevert = new Set(
+    (targetBatch.invoices || []).map(x => String(x || '').trim()).filter(Boolean)
+  );
+  // También recolectar facturas directamente de las filas del lote
+  (targetBatch.rows || []).forEach(r => {
+    const inv = String((r.cells && r.cells[targetBatch.factIdx]) || '').trim();
+    if (inv) invoicesToRevert.add(inv);
+  });
+
+  S.billingHistory[S.brand] = hist.filter(b => b.id !== batchId);
+  if (S.lastBillingPreview && S.lastBillingPreview.brand === S.brand) {
+    S.lastBillingPreview = S.billingHistory[S.brand][0] || null;
+  }
+
+  let revertedUnits = 0;
+  if (alsoRevert && invoicesToRevert.size > 0) {
+    const normInvs = new Set([...invoicesToRevert].map(norm));
+    const allBrandRows = await getAllBrandRows(S.brand);
+    const bySeason = new Map();
+    for (const r of allBrandRows) {
+      if (st(r) === 'p' && normInvs.has(norm(r['Factura']))) {
+        const sKey = r.sb || `${r.brand || S.brand}|${r.season || S.season}`;
+        if (!bySeason.has(sKey)) bySeason.set(sKey, []);
+        bySeason.get(sKey).push(r);
+      }
+    }
+
+    for (const [sKey, sP24Rows] of bySeason.entries()) {
+      const sRows = (sKey === sbKey()) ? S.rows : await dbSeason(sKey);
+      const pool10A = new Map();
+      sRows.forEach(r => {
+        if (st(r) === 'o') {
+          const k = `${norm(r['Código'])}|${norm(r['Color'])}|${normTalla(r['Talla'])}|${norm(r['Referencia compra'])}|${norm(r['Seguimiento'])}|${norm(r['Detalle compra'])}`;
+          if (!pool10A.has(k)) pool10A.set(k, r);
+        }
+      });
+      const toUpdate = new Set();
+      const toDeleteIds = [];
+      for (const r of sP24Rows) {
+        const qty = Number(r['Cantidad'] || 0);
+        revertedUnits += qty;
+        const mergeKey = `${norm(r['Código'])}|${norm(r['Color'])}|${normTalla(r['Talla'])}|${norm(r['Referencia compra'])}|${norm(r['Seguimiento'])}|${norm(r['Detalle compra'])}`;
+        const existing10A = pool10A.get(mergeKey);
+        if (existing10A && existing10A.id !== r.id) {
+          existing10A['Cantidad'] = (Number(existing10A['Cantidad']) || 0) + qty;
+          existing10A['Valor Neto'] = calcValorNeto(existing10A);
+          toUpdate.add(existing10A);
+          if (r.id != null) toDeleteIds.push(r.id);
+        } else {
+          r['Etapa'] = E10;
+          r['Factura'] = '';
+          r['Fecha de factura'] = '';
+          r['EMBARQUE'] = '';
+          r['Fecha de ingreso embarque'] = '';
+          r['Canal Final'] = '';
+          r['PVP Final'] = 0;
+          r['P4 Final'] = 0;
+          r['PMY Final'] = 0;
+          r['Valor Neto'] = calcValorNeto(r);
+          toUpdate.add(r);
+          pool10A.set(mergeKey, r);
+        }
+      }
+      if (toUpdate.size) await dbPut([...toUpdate]);
+      if (toDeleteIds.length) await dbDeleteIds(toDeleteIds);
+    }
+  }
+
+  await saveMeta();
+  if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+    pushCloudConfig().catch(() => {});
+  }
+  await reload();
+  busy();
+
+  modal(
+    'Detalle de Facturación Eliminado',
+    `Se eliminó <b>${esc(targetBatch.fileName || 'el detalle de facturación')}</b> de ${esc(S.brand)}.` +
+    (alsoRevert ? `<br>Se devolvieron <b>${fn(revertedUnits)} unidades</b> de esas facturas a <b>10A</b>.` : '')
+  );
+}
+
 function vBilling() {
   const view = $('view');
   const isReebok = String(S.brand).toUpperCase().includes('REEBOK');
@@ -7568,9 +7717,14 @@ function vBilling() {
         <option value="">Todos los canales</option>
         ${canalesList.map(c => `<option value="${esc(c)}" ${bt.canal === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
       </select>
-      <button type="button" id="btExportBtn" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 ml-auto !text-xs">
-        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Descargar Excel Filtrado
-      </button>
+      <div class="flex items-center gap-2 ml-auto">
+        ${hist.length ? `<button type="button" onclick="promptDeleteBillingBatch()" class="btn btn-danger !text-xs" title="Eliminar un detalle de facturación cargado">
+          <svg class="w-4 h-4 text-red-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg> Borrar Detalle
+        </button>` : ''}
+        <button type="button" id="btExportBtn" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 !text-xs">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Descargar Excel Filtrado
+        </button>
+      </div>
     </div>
 
     <div id="btTableWrap"></div>
