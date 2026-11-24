@@ -1702,6 +1702,11 @@ async function parseExcelFile(file, tipoCompra) {
     if (!r['PVP Final']) r['PVP Final'] = 0;
     if (!r['P4 Final']) r['P4 Final'] = 0;
     if (!r['PMY Final']) r['PMY Final'] = 0;
+    if (!r['Talla'] && r['Talla marca'] && Array.isArray(S.sizePairs) && S.sizePairs.length) {
+      const tmLookup = buildTallaSapLookup();
+      const mapped = getTallaSapCandidates(r['Talla marca'], '', tmLookup);
+      if (mapped.length) r['Talla'] = mapped[0];
+    }
     if (!r['Etapa']) r['Etapa'] = E10;
     if (!r['Temporada']) r['Temporada'] = S.season;
     const tplCatalog = S.templates[sbKey()];
@@ -5118,8 +5123,12 @@ async function processBrandBilling(file, ptsFile = null) {
         if (norm(r.season || r['Temporada']) === tempNorm) sc += 100;
         const rTal = normTalla(r['Talla']);
         const rTalM = normTalla(r['Talla marca']);
-        if (candTallasNorm.includes(rTal)) sc += 50;
-        else if (candTallasNorm.includes(rTalM)) sc += 40;
+        // También expandir las equivalencias SAP de r['Talla marca'] en la compra inicial (ej. OSFM/OSFW -> TU, KXXL -> XXL)
+        const rTalMAsSap = rTalM ? getTallaSapCandidates(r['Talla marca'], '', sizeLookup).map(normTalla) : [];
+        if (rTal && candTallasNorm.includes(rTal)) sc += 50;
+        else if (rTalM && candTallasNorm.includes(rTalM)) sc += 45;
+        else if (!rTal && rTalMAsSap.some(x => candTallasNorm.includes(x))) sc += 38;
+        else if (rTalMAsSap.some(x => candTallasNorm.includes(x))) sc += 32;
         else return -1;
 
         if (targetCanalNorm) {
