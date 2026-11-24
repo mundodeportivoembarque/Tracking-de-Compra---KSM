@@ -8093,40 +8093,35 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
     it.initialChannels10A = [...initMap.values()]
       .sort((a, b) => getReebokDropPriorityScore(a.canal) - getReebokDropPriorityScore(b.canal));
 
-    if (!it.selectedCanal && it.channels10A.length > 0) {
-      it.selectedCanal = pickPreferredReebokDropChannel(it.channels10A, it.dropQty);
+    // Inicializar reparto por canal (allocations: { [canal]: qty }) si aún no existe
+    if (!it.allocations || typeof it.allocations !== 'object') {
+      it.allocations = {};
+      const prefCanal = it.selectedCanal || pickPreferredReebokDropChannel(it.channels10A, it.dropQty);
+      if (prefCanal) {
+        it.allocations[prefCanal] = Number(it.dropQty || 0);
+        it.selectedCanal = prefCanal;
+      }
     }
   }
 
   const totalDropUnits = items.reduce((a, x) => a + Number(x.dropQty || 0), 0);
-  const suggestedByCanal = new Map();
-  items.forEach(it => {
-    const c = it.selectedCanal || 'PENDIENTE';
-    suggestedByCanal.set(c, (suggestedByCanal.get(c) || 0) + Number(it.dropQty || 0));
-  });
-  const canalPillsHtml = [...suggestedByCanal.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([c, u]) => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-white border border-rose-200 text-slate-800 shadow-2xs"><span>${esc(c)}</span><span class="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-mono">${fn(u)} u.</span></span>`)
-    .join('');
 
   const m = $('modal');
-  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-[95vw] xl:max-w-6xl max-h-[90vh] flex flex-col p-6">
+  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-[96vw] xl:max-w-7xl max-h-[92vh] flex flex-col p-6">
     <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
       <div>
         <div class="flex items-center gap-2">
           <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 text-[10px] font-bold uppercase">Alerta Reebok · Coordinación con Producto</span>
           <h3 class="text-lg font-bold text-slate-900">Asignar Canal a Unidades Dropeadas (${fn(totalDropUnits)} unid.)</h3>
         </div>
-        <p class="text-xs text-slate-500 mt-1">Prioridad de protección: <b>1° Mayorista</b> → <b>2° Tiendas</b> (siempre antes que Marathon y Web) → <b>3° TAF</b>. <b>WEB</b> se sacrifica primero porque Producto lo unifica y complementa con <b>MARATHON</b>.</p>
+        <p class="text-xs text-slate-500 mt-1">Prioridad de protección: <b>1° Mayorista</b> → <b>2° Tiendas</b> (siempre antes que Marathon y Web) → <b>3° TAF</b>. Puedes <b>repartir las unidades DROP entre varios canales</b> (ej. 1 u. a <code>WEB</code> y 1 u. a <code>MARATHON</code>) usando los contadores de la derecha.</p>
       </div>
       <button type="button" id="btnExportRbkDropAlertsXlsx" class="btn !text-xs shrink-0">
         <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i> Exportar Alerta para Producto
       </button>
     </div>
-    <div class="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 mb-1">
-      <span class="text-[11px] font-bold uppercase tracking-wider text-rose-900 mr-1">Resumen DROP Sugerido por Canal:</span>
-      ${canalPillsHtml}
-    </div>
+
+    <div id="rbkDropSummaryBar" class="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 mb-1"></div>
 
     <div class="border rounded-lg overflow-auto flex-1 my-3">
       <table class="w-full text-xs border-collapse">
@@ -8140,16 +8135,13 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
             <th class="px-3 py-2 text-right font-semibold">Ped.</th>
             <th class="px-3 py-2 text-right font-semibold">Ent.</th>
             <th class="px-3 py-2 text-right font-semibold text-rose-800">DROP</th>
-            <th class="px-3 py-2 font-semibold min-w-[230px]">Compra Inicial por Canal (Filas en Talla)</th>
-            <th class="px-3 py-2 font-semibold">Saldo Disponible 10A</th>
-            <th class="px-3 py-2 font-semibold">Canal Sugerido / a Dropear</th>
+            <th class="px-3 py-2 font-semibold min-w-[220px]">Compra Inicial por Canal (Filas)</th>
+            <th class="px-3 py-2 font-semibold">Saldo 10A</th>
+            <th class="px-3 py-2 font-semibold min-w-[290px]">Reparto DROP por Canal (Divisible)</th>
           </tr>
         </thead>
         <tbody>
           ${items.map(it => {
-            const opts = it.channels10A.map(c =>
-              `<option value="${esc(c.canal)}" ${it.selectedCanal === c.canal ? 'selected' : ''}>${esc(c.canal)} (Disp. 10A: ${fn(c.avail)} u.)</option>`
-            ).join('');
             const hasWeb = (it.initialChannels10A || []).some(x => norm(x.canal) === 'web');
             const hasMs = (it.initialChannels10A || []).some(x => resolverCanalUnificado(x.canal) === 'MARATHON' && norm(x.canal) !== 'web');
             const webMsSum = (it.initialChannels10A || [])
@@ -8175,28 +8167,61 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
                    ${poolHint}
                  </div>`
               : '<span class="text-slate-400 text-[11px]">Sin filas previas</span>';
+
+            // Construir lista de canales candidatos para repartir (combinando Saldo 10A + canales iniciales + WEB/MARATHON)
+            const candidateSet = new Set([
+              ...it.channels10A.map(c => c.canal),
+              ...(it.initialChannels10A || []).map(c => c.canal),
+              ...Object.keys(it.allocations || {})
+            ]);
+            const candidateCanales = [...candidateSet]
+              .filter(Boolean)
+              .sort((a, b) => getReebokDropPriorityScore(b) - getReebokDropPriorityScore(a));
+
+            const splitControlsHtml = candidateCanales.map(cName => {
+              const curVal = Number((it.allocations && it.allocations[cName]) || 0);
+              const availObj = it.channels10A.find(x => x.canal === cName);
+              const initObj = (it.initialChannels10A || []).find(x => x.canal === cName);
+              const maxHint = availObj ? `10A: ${availObj.avail}` : (initObj ? `Comp: ${initObj.qty}` : '0');
+              return `
+                <div class="flex items-center justify-between gap-2 py-1 px-2 rounded ${curVal > 0 ? 'bg-rose-50/90 border border-rose-200' : 'bg-slate-50/70 border border-slate-200/70'}">
+                  <div class="min-w-0">
+                    <span class="font-bold text-[11px] ${curVal > 0 ? 'text-rose-950' : 'text-slate-700'}">${esc(cName)}</span>
+                    <span class="text-[10px] text-slate-400 ml-1">(${maxHint})</span>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <button type="button" class="rbk-split-step w-5 h-5 rounded border bg-white hover:bg-slate-100 font-bold text-slate-700 leading-none" data-alert-id="${esc(it.id)}" data-canal="${esc(cName)}" data-delta="-1">−</button>
+                    <input type="number" min="0" max="${it.dropQty}" step="1" class="rbk-split-inp w-12 text-center border rounded py-0.5 font-mono font-bold text-xs bg-white ${curVal > 0 ? 'text-rose-800 border-rose-300' : 'text-slate-500'}" data-alert-id="${esc(it.id)}" data-canal="${esc(cName)}" value="${curVal}">
+                    <button type="button" class="rbk-split-step w-5 h-5 rounded border bg-white hover:bg-slate-100 font-bold text-slate-700 leading-none" data-alert-id="${esc(it.id)}" data-canal="${esc(cName)}" data-delta="1">+</button>
+                  </div>
+                </div>
+              `;
+            }).join('');
+
             return `
-            <tr class="border-t hover:bg-rose-50/30 align-top">
+            <tr class="border-t hover:bg-rose-50/20 align-top" data-alert-row="${esc(it.id)}">
               <td class="px-3 py-2 font-mono font-semibold text-slate-800 whitespace-nowrap">${esc(it.invoices || '—')}</td>
               <td class="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">${esc(it.pts || '—')}</td>
               <td class="px-3 py-2 font-mono font-bold text-slate-900 whitespace-nowrap">${esc(it.material)}</td>
-              <td class="px-3 py-2 max-w-[12rem] truncate" title="${esc(it.descripcion)}">${esc(it.descripcion || '—')}</td>
+              <td class="px-3 py-2 max-w-[11rem] truncate" title="${esc(it.descripcion)}">${esc(it.descripcion || '—')}</td>
               <td class="px-3 py-2 font-mono font-bold whitespace-nowrap">${esc(it.tallaSap)}</td>
               <td class="px-3 py-2 num">${fn(it.reqTotal)}</td>
               <td class="px-3 py-2 num text-emerald-800 font-semibold">${fn(it.delivTotal)}</td>
               <td class="px-3 py-2 num font-extrabold text-rose-700 bg-rose-50/70">${fn(it.dropQty)}</td>
               <td class="px-3 py-2">${initRowsHtml}</td>
-              <td class="px-3 py-2 text-[11px] text-slate-600">
+              <td class="px-3 py-2 text-[11px] text-slate-600 whitespace-nowrap">
                 ${it.channels10A.length
                   ? `<div class="space-y-1">${it.channels10A.map(c => `<div class="flex items-center justify-between gap-2 bg-amber-50/80 border border-amber-200 px-2 py-0.5 rounded"><span>${esc(c.canal)}</span><b>${fn(c.avail)} u.</b></div>`).join('')}</div>`
                   : '<span class="text-amber-700 font-semibold">Sin saldo 10A</span>'}
               </td>
               <td class="px-3 py-2">
-                <select class="rbk-drop-canal-sel border rounded px-2 py-1 text-xs bg-white font-semibold w-48" data-alert-id="${esc(it.id)}">
-                  <option value="">— Dejar pendiente —</option>
-                  ${opts}
-                  <option value="__CUSTOM__">Otro canal (Escribir)...</option>
-                </select>
+                <div class="space-y-1" data-split-box="${esc(it.id)}">
+                  ${splitControlsHtml}
+                </div>
+                <div class="mt-1.5 flex items-center justify-between text-[11px]">
+                  <span class="rbk-split-status font-semibold" data-status-id="${esc(it.id)}"></span>
+                  <button type="button" class="rbk-add-canal text-indigo-700 hover:underline font-semibold" data-alert-id="${esc(it.id)}">+ Otro canal</button>
+                </div>
               </td>
             </tr>`;
           }).join('')}
@@ -8217,23 +8242,114 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
   m.classList.remove('hidden');
   icons();
 
-  m.querySelectorAll('.rbk-drop-canal-sel').forEach(sel => {
-    sel.onchange = () => {
-      if (sel.value === '__CUSTOM__') {
-        const custom = prompt('Escribe el nombre del Canal Inicial a dropear (ej. WEB, TIENDAS, MARATHON):');
-        if (custom && custom.trim()) {
-          const up = custom.trim().toUpperCase();
-          const opt = document.createElement('option');
-          opt.value = up;
-          opt.textContent = up;
-          opt.selected = true;
-          sel.insertBefore(opt, sel.lastElementChild);
-        } else {
-          sel.value = '';
+  const refreshSplitUI = () => {
+    const globalSummary = new Map();
+    let allValid = true;
+
+    for (const it of items) {
+      const targetQty = Number(it.dropQty || 0);
+      let assignedSum = 0;
+      const activeParts = [];
+      for (const [cName, val] of Object.entries(it.allocations || {})) {
+        const q = Math.max(0, Number(val || 0));
+        if (q > 0) {
+          assignedSum += q;
+          activeParts.push(`${cName}: ${q}`);
+          globalSummary.set(cName, (globalSummary.get(cName) || 0) + q);
         }
       }
-    };
+      it.selectedCanal = activeParts.join(' + ');
+
+      const stEl = m.querySelector(`.rbk-split-status[data-status-id="${CSS.escape(it.id)}"]`);
+      if (stEl) {
+        if (assignedSum === targetQty) {
+          stEl.className = 'rbk-split-status font-semibold text-emerald-700';
+          stEl.textContent = `✓ Asignado: ${fn(assignedSum)} / ${fn(targetQty)} u.`;
+        } else if (assignedSum === 0) {
+          stEl.className = 'rbk-split-status font-semibold text-slate-400';
+          stEl.textContent = `Sin asignar (0 / ${fn(targetQty)} u.)`;
+        } else {
+          allValid = false;
+          stEl.className = 'rbk-split-status font-bold text-amber-700';
+          stEl.textContent = `⚠️ Suma ${fn(assignedSum)} de ${fn(targetQty)} u. requeridas`;
+        }
+      }
+    }
+
+    const pills = [...globalSummary.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, u]) => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-white border border-rose-200 text-slate-800 shadow-2xs"><span>${esc(c)}</span><span class="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-mono">${fn(u)} u.</span></span>`)
+      .join('');
+
+    $('rbkDropSummaryBar').innerHTML = `
+      <span class="text-[11px] font-bold uppercase tracking-wider text-rose-900 mr-1">Resumen DROP Asignado por Canal:</span>
+      ${pills || '<span class="text-xs text-slate-500 italic">Ninguna unidad asignada aún</span>'}
+    `;
+
+    const applyBtn = $('btnApplyRbkDrops');
+    if (applyBtn) applyBtn.disabled = !allValid || globalSummary.size === 0;
+  };
+
+  m.addEventListener('click', ev => {
+    const stepBtn = ev.target.closest('.rbk-split-step');
+    if (stepBtn) {
+      const id = stepBtn.dataset.alertId;
+      const canal = stepBtn.dataset.canal;
+      const delta = Number(stepBtn.dataset.delta || 0);
+      const it = items.find(x => x.id === id);
+      if (!it) return;
+      const inp = m.querySelector(`.rbk-split-inp[data-alert-id="${CSS.escape(id)}"][data-canal="${CSS.escape(canal)}"]`);
+      const nextVal = Math.max(0, Math.min(Number(it.dropQty || 0), (Number(inp.value || 0) + delta)));
+      inp.value = nextVal;
+      it.allocations[canal] = nextVal;
+      refreshSplitUI();
+      return;
+    }
+
+    const addBtn = ev.target.closest('.rbk-add-canal');
+    if (addBtn) {
+      const id = addBtn.dataset.alertId;
+      const it = items.find(x => x.id === id);
+      if (!it) return;
+      const custom = prompt('Escribe el nombre del Canal Inicial a dropear (ej. WEB, MARATHON, TIENDAS, OUTLET):');
+      if (!custom || !custom.trim()) return;
+      const up = custom.trim().toUpperCase();
+      if (it.allocations[up] !== undefined) return;
+      it.allocations[up] = 0;
+      const box = m.querySelector(`[data-split-box="${CSS.escape(id)}"]`);
+      if (box) {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between gap-2 py-1 px-2 rounded bg-slate-50/70 border border-slate-200/70';
+        div.innerHTML = `
+          <div class="min-w-0">
+            <span class="font-bold text-[11px] text-slate-700">${esc(up)}</span>
+            <span class="text-[10px] text-slate-400 ml-1">(Manual)</span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button type="button" class="rbk-split-step w-5 h-5 rounded border bg-white hover:bg-slate-100 font-bold text-slate-700 leading-none" data-alert-id="${esc(id)}" data-canal="${esc(up)}" data-delta="-1">−</button>
+            <input type="number" min="0" max="${it.dropQty}" step="1" class="rbk-split-inp w-12 text-center border rounded py-0.5 font-mono font-bold text-xs bg-white text-slate-500" data-alert-id="${esc(id)}" data-canal="${esc(up)}" value="0">
+            <button type="button" class="rbk-split-step w-5 h-5 rounded border bg-white hover:bg-slate-100 font-bold text-slate-700 leading-none" data-alert-id="${esc(id)}" data-canal="${esc(up)}" data-delta="1">+</button>
+          </div>
+        `;
+        box.appendChild(div);
+      }
+      refreshSplitUI();
+    }
   });
+
+  m.addEventListener('input', ev => {
+    const inp = ev.target.closest('.rbk-split-inp');
+    if (!inp) return;
+    const id = inp.dataset.alertId;
+    const canal = inp.dataset.canal;
+    const it = items.find(x => x.id === id);
+    if (!it) return;
+    const val = Math.max(0, Math.min(Number(it.dropQty || 0), Number(inp.value || 0)));
+    it.allocations[canal] = val;
+    refreshSplitUI();
+  });
+
+  refreshSplitUI();
 
   $('btnExportRbkDropAlertsXlsx').onclick = () => {
     const aoa = [
@@ -8258,13 +8374,20 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
 
   $('btnApplyRbkDrops').onclick = async () => {
     const selections = new Map();
-    m.querySelectorAll('.rbk-drop-canal-sel').forEach(sel => {
-      if (sel.value && sel.value !== '__CUSTOM__') {
-        selections.set(sel.dataset.alertId, sel.value);
+    for (const it of items) {
+      const parts = Object.entries(it.allocations || {})
+        .map(([canal, qty]) => ({ canal, qty: Math.max(0, Number(qty || 0)) }))
+        .filter(p => p.qty > 0);
+      const sum = parts.reduce((a, p) => a + p.qty, 0);
+      if (sum > 0) {
+        if (sum !== Number(it.dropQty || 0)) {
+          return alert(`El código ${it.material} (talla ${it.tallaSap}) tiene ${sum} unidades asignadas, pero el DROP es de ${it.dropQty} unidades.`);
+        }
+        selections.set(it.id, parts);
       }
-    });
+    }
     if (!selections.size) {
-      return alert('Selecciona al menos un Canal a Dropear en el desplegable o haz clic en "Dejar Pendiente por Ahora".');
+      return alert('Asigna al menos un canal a dropear o haz clic en "Dejar Pendiente por Ahora".');
     }
     m.classList.add('hidden');
     await applyReebokDropsToDatabase(selections);
@@ -8283,119 +8406,129 @@ async function applyReebokDropsToDatabase(selectionsMap) {
 
   for (const alertItem of (S.reebokDropAlerts || [])) {
     if (alertItem.status === 'APPLIED') continue;
-    const chosenCanal = selectionsMap.get(alertItem.id);
-    if (!chosenCanal) continue;
+    const rawSelection = selectionsMap.get(alertItem.id);
+    if (!rawSelection) continue;
+
+    // Soportar tanto arreglo [{ canal, qty }] como string simple por compatibilidad
+    const partsList = Array.isArray(rawSelection)
+      ? rawSelection
+      : [{ canal: String(rawSelection), qty: Number(alertItem.dropQty || 0) }];
 
     const codNorm = norm(alertItem.material);
     const talNorm = normTalla(alertItem.tallaSap);
     const gridNorm = normTalla(alertItem.gridValue);
-    const targetCanalNorm = norm(chosenCanal);
 
-    const allSkuSize10A = allReebokRows.filter(r =>
-      st(r) === 'o' &&
-      Number(r['Cantidad'] || 0) > 0 &&
-      norm(r['Código']) === codNorm &&
-      (normTalla(r['Talla']) === talNorm || (gridNorm && normTalla(r['Talla marca']) === gridNorm) || normTalla(r['Talla']) === gridNorm)
-    );
+    for (const part of partsList) {
+      const chosenCanal = part.canal;
+      let rem = Number(part.qty || 0);
+      if (!chosenCanal || rem <= 0) continue;
 
-    // Priorizar el canal elegido por el usuario, luego otros canales si hiciera falta completar
-    allSkuSize10A.sort((a, b) => {
-      const ca = norm(a['Canal Inicial'] || resolverCanalInicial(a['Referencia compra'], 'Reebok'));
-      const cb = norm(b['Canal Inicial'] || resolverCanalInicial(b['Referencia compra'], 'Reebok'));
-      return (cb === targetCanalNorm ? 1 : 0) - (ca === targetCanalNorm ? 1 : 0);
-    });
+      const targetCanalNorm = norm(chosenCanal);
+      const allSkuSize10A = allReebokRows.filter(r =>
+        st(r) === 'o' &&
+        Number(r['Cantidad'] || 0) > 0 &&
+        norm(r['Código']) === codNorm &&
+        (normTalla(r['Talla']) === talNorm || (gridNorm && normTalla(r['Talla marca']) === gridNorm) || normTalla(r['Talla']) === gridNorm)
+      );
 
-    let rem = Number(alertItem.dropQty || 0);
-    for (let i = 0; i < allSkuSize10A.length && rem > 0; i++) {
-      const baseRow = allSkuSize10A[i];
-      const avail = Number(baseRow['Cantidad'] || 0);
-      if (avail <= 0 || st(baseRow) !== 'o') continue;
-      affectedSeasons.add(baseRow.season || S.season);
+      // Priorizar el canal elegido por el usuario, luego otros canales si hiciera falta completar
+      allSkuSize10A.sort((a, b) => {
+        const ca = norm(a['Canal Inicial'] || resolverCanalInicial(a['Referencia compra'], 'Reebok'));
+        const cb = norm(b['Canal Inicial'] || resolverCanalInicial(b['Referencia compra'], 'Reebok'));
+        return (cb === targetCanalNorm ? 1 : 0) - (ca === targetCanalNorm ? 1 : 0);
+      });
 
-      if (avail <= rem) {
-        rem -= avail;
-        totalDroppedUnits += avail;
-        baseRow['Etapa'] = ED;
-        baseRow['Canal Final'] = chosenCanal;
-        if (alertItem.invoices) baseRow['Factura'] = alertItem.invoices;
-        baseRow['OBS'] = `DROP REEBOK (${chosenCanal})`.trim();
-        baseRow['Valor Neto'] = calcValorNeto(baseRow);
-        changed.add(baseRow);
-      } else {
-        const dropSplit = { ...baseRow };
-        delete dropSplit.id;
-        dropSplit['Cantidad'] = rem;
-        dropSplit['Etapa'] = ED;
-        dropSplit['Canal Final'] = chosenCanal;
-        if (alertItem.invoices) dropSplit['Factura'] = alertItem.invoices;
-        dropSplit['OBS'] = `DROP REEBOK (${chosenCanal})`.trim();
-        dropSplit['Valor Neto'] = calcValorNeto(dropSplit);
+      for (let i = 0; i < allSkuSize10A.length && rem > 0; i++) {
+        const baseRow = allSkuSize10A[i];
+        const avail = Number(baseRow['Cantidad'] || 0);
+        if (avail <= 0 || st(baseRow) !== 'o') continue;
+        affectedSeasons.add(baseRow.season || S.season);
 
-        baseRow['Cantidad'] = avail - rem;
-        baseRow['Valor Neto'] = calcValorNeto(baseRow);
+        if (avail <= rem) {
+          rem -= avail;
+          totalDroppedUnits += avail;
+          baseRow['Etapa'] = ED;
+          baseRow['Canal Final'] = chosenCanal;
+          if (alertItem.invoices) baseRow['Factura'] = alertItem.invoices;
+          baseRow['OBS'] = `DROP REEBOK (${chosenCanal})`.trim();
+          baseRow['Valor Neto'] = calcValorNeto(baseRow);
+          changed.add(baseRow);
+        } else {
+          const dropSplit = { ...baseRow };
+          delete dropSplit.id;
+          dropSplit['Cantidad'] = rem;
+          dropSplit['Etapa'] = ED;
+          dropSplit['Canal Final'] = chosenCanal;
+          if (alertItem.invoices) dropSplit['Factura'] = alertItem.invoices;
+          dropSplit['OBS'] = `DROP REEBOK (${chosenCanal})`.trim();
+          dropSplit['Valor Neto'] = calcValorNeto(dropSplit);
+
+          baseRow['Cantidad'] = avail - rem;
+          baseRow['Valor Neto'] = calcValorNeto(baseRow);
+          totalDroppedUnits += rem;
+          rem = 0;
+          changed.add(baseRow);
+          added.push(dropSplit);
+        }
+      }
+
+      // Si no había suficiente saldo 10A en base, registrar el remanente directamente en DROP para que quede trazabilidad
+      if (rem > 0) {
+        const newDropRow = {
+          'Seguimiento': '',
+          'Detalle compra': 'COMPRA CANAL',
+          'Temporada': alertItem.temporada || S.season,
+          'Marca': 'Reebok',
+          'Grupo': '',
+          'Categoría': '',
+          'Actividad': '',
+          'Línea': '',
+          'Referencia compra': chosenCanal,
+          'Canal Inicial': chosenCanal,
+          'Canal Final': chosenCanal,
+          'Código': alertItem.material,
+          'Color': alertItem.color || '',
+          'Talla': alertItem.tallaSap,
+          'Talla marca': alertItem.gridValue || alertItem.tallaSap,
+          'Descripción': alertItem.descripcion || '',
+          'Género': '',
+          'Fecha de entrega': '',
+          'Fecha de venta': '',
+          'Cantidad': rem,
+          'FOB': alertItem.fob || 0,
+          'Valor Neto': Math.round((alertItem.fob || 0) * rem * 10000) / 10000,
+          'PVP': 0,
+          'PVP Final': 0,
+          'PVP retail': 0,
+          'P4': 0,
+          'P4 Final': 0,
+          'PMY': 0,
+          'PMY Final': 0,
+          'Etapa': ED,
+          'Régimen': 'CONSUMO',
+          'LPN ID': '',
+          'Documento': '',
+          'EMBARQUE': '',
+          'Fecha estimada inicio': '',
+          'Fecha real inicio': '',
+          'Fecha estimada fin': '',
+          'Fecha real fin': '',
+          'Factura': alertItem.invoices || '',
+          'Delivery': alertItem.pts || '',
+          'Fecha de factura': '',
+          'Fecha de ingreso embarque': '',
+          'OBS': `DROP REEBOK (${chosenCanal})`,
+          sb: `Reebok|${alertItem.temporada || S.season}`,
+          brand: 'Reebok',
+          season: alertItem.temporada || S.season
+        };
+        added.push(newDropRow);
         totalDroppedUnits += rem;
-        rem = 0;
-        changed.add(baseRow);
-        added.push(dropSplit);
+        affectedSeasons.add(alertItem.temporada || S.season);
       }
     }
 
-    // Si no había suficiente saldo 10A en base, registrar el remanente directamente en DROP para que quede trazabilidad
-    if (rem > 0) {
-      const newDropRow = {
-        'Seguimiento': '',
-        'Detalle compra': 'COMPRA CANAL',
-        'Temporada': alertItem.temporada || S.season,
-        'Marca': 'Reebok',
-        'Grupo': '',
-        'Categoría': '',
-        'Actividad': '',
-        'Línea': '',
-        'Referencia compra': chosenCanal,
-        'Canal Inicial': chosenCanal,
-        'Canal Final': chosenCanal,
-        'Código': alertItem.material,
-        'Color': alertItem.color || '',
-        'Talla': alertItem.tallaSap,
-        'Talla marca': alertItem.gridValue || alertItem.tallaSap,
-        'Descripción': alertItem.descripcion || '',
-        'Género': '',
-        'Fecha de entrega': '',
-        'Fecha de venta': '',
-        'Cantidad': rem,
-        'FOB': alertItem.fob || 0,
-        'Valor Neto': Math.round((alertItem.fob || 0) * rem * 10000) / 10000,
-        'PVP': 0,
-        'PVP Final': 0,
-        'PVP retail': 0,
-        'P4': 0,
-        'P4 Final': 0,
-        'PMY': 0,
-        'PMY Final': 0,
-        'Etapa': ED,
-        'Régimen': 'CONSUMO',
-        'LPN ID': '',
-        'Documento': '',
-        'EMBARQUE': '',
-        'Fecha estimada inicio': '',
-        'Fecha real inicio': '',
-        'Fecha estimada fin': '',
-        'Fecha real fin': '',
-        'Factura': alertItem.invoices || '',
-        'Delivery': alertItem.pts || '',
-        'Fecha de factura': '',
-        'Fecha de ingreso embarque': '',
-        'OBS': `DROP REEBOK (${chosenCanal})`,
-        sb: `Reebok|${alertItem.temporada || S.season}`,
-        brand: 'Reebok',
-        season: alertItem.temporada || S.season
-      };
-      added.push(newDropRow);
-      totalDroppedUnits += rem;
-      affectedSeasons.add(alertItem.temporada || S.season);
-    }
-
-    alertItem.selectedCanal = chosenCanal;
+    alertItem.selectedCanal = partsList.map(p => `${p.canal} (${p.qty})`).join(' + ');
     alertItem.status = 'APPLIED';
     alertItem.appliedAt = new Date().toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' });
   }
