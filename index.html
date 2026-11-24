@@ -330,6 +330,7 @@ const S = {
   billTab: { q: '', codigo: '', embarque: '', factura: '', temporada: '', canal: '', forwarderOnly: false, page: 1, size: 50 },
   depcoTab: { q: '', embarque: '', factura: '', canalFact: '', lpn: '', page: 1, size: 50 },
   skuTrace: { selectedSku: '', q: '', scope: 'season' },
+  dropTab: { viewMode: 'pivot', q: '', canal: '', factura: '', expandedSku: null },
   counts: {},
   cloud: {
     dirHandle: null,
@@ -5086,12 +5087,13 @@ async function processBrandBilling(file, ptsFile = null) {
           if (rCan && rCan === targetCanalNorm) sc += 25;
           else if (rCanUnif && rCanUnif === targetUnifNorm) sc += 12;
         } else if (isReebok) {
-          // Proteger canales prioritarios (Mayorista = 10, Tiendas = 20) para que queden intactos si solo se factura una parte,
-          // y consumir primero los canales sacrificables (Outlet = 100, Web = 90, Marathon = 75, TAF = 60).
+          // Proteger estrictamente Mayorista (10) y Tiendas (20) sobre Marathon (75) y Web (92):
+          // Al descontar lo facturado, se consume primero el bloque sacrificable (Web/Marathon/Outlet) dejando el saldo sobrante en Web/Marathon
+          // y manteniendo intactas las unidades de Tiendas y Mayorista.
           const cRaw = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || '').trim();
           const dropPrio = getReebokDropPriorityScore(cRaw);
-          sc += Math.round(dropPrio / 2); // Hasta +50 pts para canales de baja protección (Web/Outlet) y +5/+10 para Mayorista/Tiendas
-          if (Math.abs(Number(r['Cantidad']) - line.qty) < 0.001) sc += 15;
+          sc += dropPrio; // +100 Outlet, +92 Web, +75 Marathon, +55 TAF, +20 Tiendas, +10 Mayorista
+          if (Math.abs(Number(r['Cantidad']) - line.qty) < 0.001) sc += 8;
         }
 
         const isExtraRow = norm(r['Detalle compra']) === 'compraextra';
@@ -7994,13 +7996,19 @@ function getReebokDropPriorityScore(canalName) {
   const unif = resolverCanalUnificado(raw);
 
   // Mayor puntaje = MAYOR prioridad para DROPEAR (sacrificar primero)
-  // Menor puntaje = MÁS PROTEGIDO (no quitarle unidades salvo que sea el único canal)
+  // Menor puntaje = MÁS PROTEGIDO (entregar completo; nunca quitarle unidades si hay WEB/MARATHON/OUTLET)
+  // Regla operativa:
+  // 1° Protegido: MAYORISTA (10)
+  // 2° Protegido: TIENDAS (20) - incluye Web Reebok Medeport / Tiendas; SIEMPRE protegido antes que MARATHON y WEB
+  // 3° Protegido: TAF (55)
+  // 4° Pool Unificado Producto (MARATHON + WEB): MARATHON (75) y WEB puro (92) -> WEB se sacrifica primero y se complementa con MARATHON
+  // 5° Máxima prioridad de drop: OUTLET (100)
   if (raw === 'OUTLET' || resolved === 'OUTLET') return 100;
-  if (raw === 'WEB' || raw === 'EXCLUSIVO WEB') return 90; // WEB puro (NO Web Reebok Medeport/Tiendas)
+  if (raw === 'WEB' || raw === 'EXCLUSIVO WEB') return 92; // WEB puro (se sacrifica primero; Producto lo complementa con MARATHON)
   if (['MARATHON', 'BIG HEAD', 'EXPLORER', 'SNEAKERS', 'TELESHOP', 'POP UP', 'SPOMA', 'MARKETING'].includes(resolved)) return 75;
-  if (raw === 'TAF' || resolved === 'TAF') return 60; // Si hay TAF vs WEB, WEB (90) gana el drop y TAF (60) se protege
-  if (resolved === 'TIENDAS' || unif === 'TIENDAS') return 20; // Segunda prioridad de protección (incluye Web Reebok Medeport/Tiendas)
-  if (unif === 'MAYORISTA' || ['MAYORISTA', 'KAO', 'EDCA'].includes(raw)) return 10; // Primera prioridad de protección (entregar completo)
+  if (raw === 'TAF' || resolved === 'TAF') return 55;
+  if (resolved === 'TIENDAS' || unif === 'TIENDAS') return 20; // Protegido antes que MARATHON y WEB
+  if (unif === 'MAYORISTA' || ['MAYORISTA', 'KAO', 'EDCA'].includes(raw)) return 10; // Máxima protección
   return 50;
 }
 
@@ -8091,19 +8099,33 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
   }
 
   const totalDropUnits = items.reduce((a, x) => a + Number(x.dropQty || 0), 0);
+  const suggestedByCanal = new Map();
+  items.forEach(it => {
+    const c = it.selectedCanal || 'PENDIENTE';
+    suggestedByCanal.set(c, (suggestedByCanal.get(c) || 0) + Number(it.dropQty || 0));
+  });
+  const canalPillsHtml = [...suggestedByCanal.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, u]) => `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-white border border-rose-200 text-slate-800 shadow-2xs"><span>${esc(c)}</span><span class="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-mono">${fn(u)} u.</span></span>`)
+    .join('');
+
   const m = $('modal');
   m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-[95vw] xl:max-w-6xl max-h-[90vh] flex flex-col p-6">
-    <div class="flex items-start justify-between gap-3 mb-2">
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
       <div>
         <div class="flex items-center gap-2">
           <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 text-[10px] font-bold uppercase">Alerta Reebok · Coordinación con Producto</span>
           <h3 class="text-lg font-bold text-slate-900">Asignar Canal a Unidades Dropeadas (${fn(totalDropUnits)} unid.)</h3>
         </div>
-        <p class="text-xs text-slate-500 mt-1">Separado por <b>Factura, SKU y Talla</b>. El sistema protege <b>1° Mayorista</b> y <b>2° Tiendas</b> (incl. Web Reebok Medeport/Tiendas) y prioriza dropear a <b>Outlet</b> o <b>Web</b> (antes que TAF), mostrando las filas de compra inicial por canal.</p>
+        <p class="text-xs text-slate-500 mt-1">Prioridad de protección: <b>1° Mayorista</b> → <b>2° Tiendas</b> (siempre antes que Marathon y Web) → <b>3° TAF</b>. <b>WEB</b> se sacrifica primero porque Producto lo unifica y complementa con <b>MARATHON</b>.</p>
       </div>
       <button type="button" id="btnExportRbkDropAlertsXlsx" class="btn !text-xs shrink-0">
         <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i> Exportar Alerta para Producto
       </button>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 mb-1">
+      <span class="text-[11px] font-bold uppercase tracking-wider text-rose-900 mr-1">Resumen DROP Sugerido por Canal:</span>
+      ${canalPillsHtml}
     </div>
 
     <div class="border rounded-lg overflow-auto flex-1 my-3">
@@ -8128,6 +8150,17 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
             const opts = it.channels10A.map(c =>
               `<option value="${esc(c.canal)}" ${it.selectedCanal === c.canal ? 'selected' : ''}>${esc(c.canal)} (Disp. 10A: ${fn(c.avail)} u.)</option>`
             ).join('');
+            const hasWeb = (it.initialChannels10A || []).some(x => norm(x.canal) === 'web');
+            const hasMs = (it.initialChannels10A || []).some(x => resolverCanalUnificado(x.canal) === 'MARATHON' && norm(x.canal) !== 'web');
+            const webMsSum = (it.initialChannels10A || [])
+              .filter(x => norm(x.canal) === 'web' || resolverCanalUnificado(x.canal) === 'MARATHON')
+              .reduce((a, x) => a + Number(x.qty || 0), 0);
+            const poolHint = (hasWeb && hasMs)
+              ? `<div class="px-2 py-1 bg-sky-50/90 text-[10px] text-sky-900 font-medium flex items-center justify-between border-t border-sky-200/80">
+                   <span>Pool Unificado (Web + Marathon):</span>
+                   <b class="font-mono">${fn(webMsSum)} u.</b>
+                 </div>`
+              : '';
             const initRowsHtml = (it.initialChannels10A && it.initialChannels10A.length)
               ? `<div class="border rounded bg-slate-50/70 divide-y divide-slate-200/80 overflow-hidden">
                    ${it.initialChannels10A.map(ic => `
@@ -8139,6 +8172,7 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
                        <span class="font-mono font-bold text-slate-900 shrink-0">${fn(ic.qty)} u.</span>
                      </div>
                    `).join('')}
+                   ${poolHint}
                  </div>`
               : '<span class="text-slate-400 text-[11px]">Sin filas previas</span>';
             return `
@@ -8382,14 +8416,75 @@ async function applyReebokDropsToDatabase(selectionsMap) {
   modal('DROPs Aplicados con Éxito', `Se pasaron <b>${fn(totalDroppedUnits)} unidades</b> a estado <b>DROP-CANCELADO MARCA</b> en los canales seleccionados.`);
 }
 
+function exportDropsPivotExcel(pivotData, rawDropRows) {
+  if (!rawDropRows || !rawDropRows.length) return modal('Sin DROPS', 'No hay cancelaciones (DROP) en esta temporada.');
+  const wb = XLSX.utils.book_new();
+  const { allCanales, allTallas, skuGroups } = pivotData;
+
+  // Hoja 1: Tabla Dinámica por SKU y Canal (con desglose de tallas)
+  const pivotHeaders = [
+    'Código', 'Descripción', 'Color', 'Grupo', 'Categoría', 'Facturas', 'Embarques',
+    ...allCanales.map(c => `DROP ${c}`),
+    'Total DROP (Unid.)', 'FOB Unit.', 'Valor FOB Perdido ($)', 'Detalle por Talla'
+  ];
+  const pivotAoa = [
+    [`REPORTE DINÁMICO DE DROPS · ${S.brand.toUpperCase()} ${S.season}`],
+    [],
+    pivotHeaders,
+    ...skuGroups.map(g => [
+      g.codigo,
+      g.descripcion,
+      g.color,
+      g.grupo,
+      g.categoria,
+      [...g.facturas].join(', '),
+      [...g.embarques].join(', '),
+      ...allCanales.map(c => g.byCanal[c] || 0),
+      g.totalQty,
+      g.fobUnit,
+      Math.round(g.totalFob * 100) / 100,
+      g.sizeList.map(sz => `${sz.talla}: ${sz.qty}u (${Object.entries(sz.byCanal).map(([cn, q]) => `${cn}:${q}`).join(', ')})`).join(' | ')
+    ])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pivotAoa), 'Tabla_Dinamica_SKU');
+
+  // Hoja 2: Matriz SKU x Talla
+  const matrixHeaders = ['Código', 'Descripción', 'Color', ...allTallas, 'Total DROP'];
+  const matrixAoa = [
+    [`MATRIZ DE DROPS POR TALLA · ${S.brand.toUpperCase()} ${S.season}`],
+    [],
+    matrixHeaders,
+    ...skuGroups.map(g => [
+      g.codigo,
+      g.descripcion,
+      g.color,
+      ...allTallas.map(t => g.byTalla[t] || 0),
+      g.totalQty
+    ])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(matrixAoa), 'Matriz_Por_Talla');
+
+  // Hoja 3: Base Detallada
+  const detailAoa = [
+    ['Detalle compra', 'Código', 'Descripción', 'Color', 'Talla', 'Ref. Compra', 'Canal Inicial', 'Canal Final', 'Factura', 'EMBARQUE', 'Cantidad', 'FOB', 'Valor Neto', 'OBS'],
+    ...rawDropRows.map(r => [
+      r['Detalle compra'] || '', r['Código'], r['Descripción'], r['Color'], r['Talla'],
+      r['Referencia compra'], r['Canal Inicial'], r['Canal Final'], r['Factura'] || '',
+      r['EMBARQUE'], r['Cantidad'], r['FOB'] || 0, r['Valor Neto'] || 0, r['OBS'] || ''
+    ])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailAoa), 'Detalle_Filas');
+  XLSX.writeFile(wb, `REPORTE_DINAMICO_DROPS_${S.brand}_${S.season}.xlsx`);
+}
+
 function vDrop() {
-  const d = S.rows.filter(r => st(r) === 'd');
-  const u = d.reduce((a, r) => a + (r['Cantidad'] || 0), 0);
-  const fobDrop = d.reduce((a, r) => a + (Number(r['Valor Neto']) || calcValorNeto(r)), 0);
+  const view = $('view');
+  const allDropRows = S.rows.filter(r => st(r) === 'd');
   const pendingRbkDrops = S.brand === 'Reebok'
     ? (S.reebokDropAlerts || []).filter(a => a.status !== 'APPLIED' && (!a.temporada || norm(a.temporada) === norm(S.season)))
     : [];
   const pendingRbkUnits = pendingRbkDrops.reduce((a, x) => a + Number(x.dropQty || 0), 0);
+
   const rbkDropBanner = pendingRbkDrops.length > 0
     ? `<div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
          <div class="flex items-start gap-3">
@@ -8410,43 +8505,390 @@ function vDrop() {
        </div>`
     : '';
 
-  $('view').innerHTML = `
-    ${rbkDropBanner}
-    <div class="grid grid-cols-2 gap-3 max-w-lg">
-      ${kpi('Unidades perdidas (DROP)', fn(u), 'Cancelado por marca', 'border-l-4 border-l-red-600', fobDrop)}
-      ${kpi('Líneas en DROP', fn(d.length), 'Registros afectados', 'border-l-4 border-l-red-600')}
-    </div>
-    <div class="flex justify-end my-3">
-      <button class="btn" onclick="exportDrops()"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar reporte de DROPS</button>
-    </div>
-    <div class="bg-white border rounded-lg overflow-auto">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-xs text-slate-600">
-            ${['Detalle compra', 'Código', 'Descripción', 'Color', 'Talla', 'Ref. Compra', 'Canal Inicial', 'Embarque', 'Cantidad', 'FOB', 'Valor Neto'].map((h, i) => `<th class="px-3 py-2 ${i >= 8 ? 'text-right' : ''}">${h}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${d.map(r => `
-            <tr class="border-t">
-              <td class="px-3 py-1.5 text-xs">${esc(r['Detalle compra'] || 'COMPRA CANAL')}</td>
-              <td class="px-3 py-1.5 font-medium"><button type="button" onclick="openSkuTrace('${esc(r['Código'])}')" class="text-indigo-900 font-bold hover:underline cursor-pointer text-left" title="Ver ciclo de vida completo de ${esc(r['Código'])}">${esc(r['Código'])}</button></td>
-              <td class="px-3 py-1.5">${esc(r['Descripción'])}</td>
-              <td class="px-3 py-1.5">${esc(r['Color'])}</td>
-              <td class="px-3 py-1.5">${esc(r['Talla'])}</td>
-              <td class="px-3 py-1.5">${esc(r['Referencia compra'])}</td>
-              <td class="px-3 py-1.5 font-medium">${esc(r['Canal Inicial'] || '')}</td>
-              <td class="px-3 py-1.5">${esc(r['EMBARQUE'] || '')}</td>
-              <td class="px-3 py-1.5 num font-semibold">${fn(r['Cantidad'])}</td>
-              <td class="px-3 py-1.5 num">${Number(r['FOB'] || 0).toFixed(2)}</td>
-              <td class="px-3 py-1.5 num font-semibold">${fmoney(r['Valor Neto'] || calcValorNeto(r))}</td>
+  const dt = S.dropTab || { viewMode: 'pivot', q: '', canal: '', factura: '', expandedSku: null };
+  S.dropTab = dt;
+
+  // Catálogos para filtros
+  const canalesSet = new Set();
+  const facturasSet = new Set();
+  allDropRows.forEach(r => {
+    const c = String(r['Canal Final'] || r['Canal Inicial'] || r['Referencia compra'] || 'SIN CANAL').trim().toUpperCase();
+    if (c) canalesSet.add(c);
+    const f = String(r['Factura'] || '').trim();
+    if (f) facturasSet.add(f);
+  });
+  const canalesList = [...canalesSet].sort();
+  const facturasList = [...facturasSet].sort();
+
+  // Filtrar filas
+  const qNorm = dt.q.trim().toLowerCase();
+  const filteredRows = allDropRows.filter(r => {
+    const c = String(r['Canal Final'] || r['Canal Inicial'] || r['Referencia compra'] || 'SIN CANAL').trim().toUpperCase();
+    if (dt.canal && c !== dt.canal) return false;
+    if (dt.factura && String(r['Factura'] || '').trim() !== dt.factura) return false;
+    if (qNorm) {
+      const hay = `${r['Código']} ${r['Descripción']} ${r['Color']} ${r['Talla']} ${c} ${r['Factura']} ${r['EMBARQUE']}`.toLowerCase();
+      if (!hay.includes(qNorm)) return false;
+    }
+    return true;
+  });
+
+  // KPIs globales sobre filtrado
+  const totalUnits = filteredRows.reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
+  const totalFob = filteredRows.reduce((a, r) => a + (Number(r['Valor Neto']) || calcValorNeto(r)), 0);
+  const uniqueSkusCount = new Set(filteredRows.map(r => String(r['Código'] || '').trim().toUpperCase())).size;
+
+  // Resumen por Canal (Tarjetas / Barras de distribución)
+  const canalTotalsMap = new Map();
+  filteredRows.forEach(r => {
+    const c = String(r['Canal Final'] || r['Canal Inicial'] || r['Referencia compra'] || 'SIN CANAL').trim().toUpperCase();
+    if (!canalTotalsMap.has(c)) canalTotalsMap.set(c, { canal: c, units: 0, fob: 0, skus: new Set() });
+    const entry = canalTotalsMap.get(c);
+    entry.units += Number(r['Cantidad'] || 0);
+    entry.fob += Number(r['Valor Neto']) || calcValorNeto(r);
+    entry.skus.add(String(r['Código'] || '').trim().toUpperCase());
+  });
+  const canalBreakdown = [...canalTotalsMap.values()].sort((a, b) => b.units - a.units);
+  const allCanalesCols = canalBreakdown.map(x => x.canal);
+
+  // Tallas ordenadas
+  const tallasSet = new Set(filteredRows.map(r => String(r['Talla'] || '').trim()).filter(Boolean));
+  const allTallasCols = [...tallasSet].sort((a, b) => {
+    const na = parseFloat(a), nb = parseFloat(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+
+  // Agrupación Dinámica por SKU -> Talla -> Canal
+  const skuMap = new Map();
+  filteredRows.forEach(r => {
+    const cod = String(r['Código'] || '').trim().toUpperCase();
+    const tal = String(r['Talla'] || '').trim() || '-';
+    const c = String(r['Canal Final'] || r['Canal Inicial'] || r['Referencia compra'] || 'SIN CANAL').trim().toUpperCase();
+    const qty = Number(r['Cantidad'] || 0);
+    const vn = Number(r['Valor Neto']) || calcValorNeto(r);
+
+    if (!skuMap.has(cod)) {
+      skuMap.set(cod, {
+        codigo: cod,
+        descripcion: r['Descripción'] || '',
+        color: r['Color'] || '',
+        grupo: r['Grupo'] || '',
+        categoria: r['Categoría'] || '',
+        fobUnit: Number(r['FOB'] || 0),
+        totalQty: 0,
+        totalFob: 0,
+        byCanal: {},
+        byTalla: {},
+        facturas: new Set(),
+        embarques: new Set(),
+        sizesMap: new Map()
+      });
+    }
+    const g = skuMap.get(cod);
+    if (!g.descripcion && r['Descripción']) g.descripcion = r['Descripción'];
+    if (!g.color && r['Color']) g.color = r['Color'];
+    if (!g.fobUnit && Number(r['FOB']) > 0) g.fobUnit = Number(r['FOB']);
+    g.totalQty += qty;
+    g.totalFob += vn;
+    g.byCanal[c] = (g.byCanal[c] || 0) + qty;
+    g.byTalla[tal] = (g.byTalla[tal] || 0) + qty;
+    if (r['Factura']) g.facturas.add(String(r['Factura']).trim());
+    if (r['EMBARQUE']) g.embarques.add(String(r['EMBARQUE']).trim());
+
+    if (!g.sizesMap.has(tal)) {
+      g.sizesMap.set(tal, { talla: tal, qty: 0, byCanal: {} });
+    }
+    const szObj = g.sizesMap.get(tal);
+    szObj.qty += qty;
+    szObj.byCanal[c] = (szObj.byCanal[c] || 0) + qty;
+  });
+
+  const skuGroups = [...skuMap.values()].map(g => {
+    g.sizeList = [...g.sizesMap.values()].sort((a, b) => {
+      const na = parseFloat(a.talla), nb = parseFloat(b.talla);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return a.talla.localeCompare(b.talla);
+    });
+    return g;
+  }).sort((a, b) => b.totalQty - a.totalQty || a.codigo.localeCompare(b.codigo));
+
+  const pivotData = { allCanales: allCanalesCols, allTallas: allTallasCols, skuGroups };
+
+  // Renderizado del cuerpo según modo de vista ('pivot' | 'matrix' | 'detail')
+  let tableContentHtml = '';
+  if (!filteredRows.length) {
+    tableContentHtml = `<div class="bg-white border rounded-xl p-10 text-center text-slate-500 text-sm">No hay cancelaciones (DROP) registradas con los filtros actuales.</div>`;
+  } else if (dt.viewMode === 'pivot') {
+    tableContentHtml = `
+      <div class="bg-white border rounded-xl overflow-hidden shadow-2xs">
+        <div class="px-4 py-2.5 bg-slate-50 border-b flex flex-wrap items-center justify-between gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-700">Tabla Dinámica de DROPS por SKU y Canal (${fn(skuGroups.length)} códigos)</span>
+          <span class="text-[11px] text-slate-500">Haz clic en cualquier fila para desplegar la curva de tallas dropeadas por canal</span>
+        </div>
+        <div class="overflow-x-auto" style="max-height:calc(100vh - 390px)">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="text-left text-slate-700 bg-slate-100 border-b">
+                <th class="px-3 py-2.5 w-8"></th>
+                <th class="px-3 py-2.5 whitespace-nowrap">Código</th>
+                <th class="px-3 py-2.5 whitespace-nowrap">Descripción</th>
+                <th class="px-3 py-2.5 whitespace-nowrap">Color</th>
+                <th class="px-3 py-2.5 whitespace-nowrap">Tallas Afectadas</th>
+                ${allCanalesCols.map(c => `<th class="px-3 py-2.5 text-right whitespace-nowrap bg-rose-50/70 text-rose-950 border-l border-slate-200/80">${esc(c)}</th>`).join('')}
+                <th class="px-3 py-2.5 text-right whitespace-nowrap bg-slate-200/70 text-slate-900 font-extrabold border-l border-slate-300">Total DROP</th>
+                <th class="px-3 py-2.5 text-right whitespace-nowrap">Valor FOB</th>
+                <th class="px-3 py-2.5 whitespace-nowrap">Factura</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${skuGroups.map(g => {
+                const isExp = dt.expandedSku === g.codigo;
+                const sizePills = g.sizeList.map(sz =>
+                  `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] mr-1 mb-0.5"><b>${esc(sz.talla)}</b>:<span class="text-rose-700 font-bold">${fn(sz.qty)}</span></span>`
+                ).join('');
+
+                const expandedDrawer = isExp ? `
+                  <tr class="bg-rose-50/30 border-t border-rose-200/70">
+                    <td colspan="${8 + allCanalesCols.length}" class="px-6 py-3.5">
+                      <div class="text-xs font-bold text-rose-950 mb-2 flex items-center justify-between">
+                        <span>Desglose Dinámico por Talla y Canal · ${esc(g.codigo)} (${esc(g.descripcion)})</span>
+                        <button type="button" onclick="event.stopPropagation(); openSkuTrace('${esc(g.codigo)}')" class="text-indigo-700 hover:underline font-semibold flex items-center gap-1">
+                          <i data-lucide="route" class="w-3.5 h-3.5"></i> Ver ciclo de vida completo del SKU
+                        </button>
+                      </div>
+                      <div class="bg-white border border-rose-200/80 rounded-lg overflow-hidden max-w-3xl">
+                        <table class="w-full text-xs border-collapse">
+                          <thead>
+                            <tr class="bg-slate-100/80 text-slate-700 border-b">
+                              <th class="px-3 py-1.5 text-left">Talla SAP</th>
+                              ${allCanalesCols.map(c => `<th class="px-3 py-1.5 text-right">${esc(c)}</th>`).join('')}
+                              <th class="px-3 py-1.5 text-right font-bold bg-rose-50 text-rose-900">Total Talla</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${g.sizeList.map(sz => `
+                              <tr class="border-t">
+                                <td class="px-3 py-1.5 font-mono font-bold text-slate-900">${esc(sz.talla)}</td>
+                                ${allCanalesCols.map(c => {
+                                  const qVal = sz.byCanal[c] || 0;
+                                  return `<td class="px-3 py-1.5 num ${qVal > 0 ? 'font-bold text-rose-700' : 'text-slate-300'}">${qVal > 0 ? fn(qVal) : '—'}</td>`;
+                                }).join('')}
+                                <td class="px-3 py-1.5 num font-extrabold text-rose-900 bg-rose-50/50">${fn(sz.qty)}</td>
+                              </tr>
+                            `).join('')}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                ` : '';
+
+                return `
+                  <tr class="border-t hover:bg-rose-50/30 cursor-pointer transition" onclick="S.dropTab.expandedSku = (S.dropTab.expandedSku === '${esc(g.codigo)}' ? null : '${esc(g.codigo)}'); vDrop();">
+                    <td class="px-3 py-2 text-slate-400">
+                      <i data-lucide="${isExp ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>
+                    </td>
+                    <td class="px-3 py-2 font-mono font-bold text-slate-900 whitespace-nowrap">
+                      <button type="button" onclick="event.stopPropagation(); openSkuTrace('${esc(g.codigo)}')" class="text-indigo-900 hover:underline font-bold" title="Ver trazabilidad SKU">${esc(g.codigo)}</button>
+                    </td>
+                    <td class="px-3 py-2 max-w-[15rem] truncate font-medium text-slate-800" title="${esc(g.descripcion)}">${esc(g.descripcion)}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-slate-600">${esc(g.color)}</td>
+                    <td class="px-3 py-2 max-w-xs">${sizePills}</td>
+                    ${allCanalesCols.map(c => {
+                      const val = g.byCanal[c] || 0;
+                      return `<td class="px-3 py-2 num border-l border-slate-100 ${val > 0 ? 'font-bold text-rose-700 bg-rose-50/30' : 'text-slate-300'}">${val > 0 ? fn(val) : '—'}</td>`;
+                    }).join('')}
+                    <td class="px-3 py-2 num font-extrabold text-slate-950 bg-slate-100/70 border-l border-slate-200">${fn(g.totalQty)}</td>
+                    <td class="px-3 py-2 num font-mono font-semibold text-slate-700">${fmoney(g.totalFob)}</td>
+                    <td class="px-3 py-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">${esc([...g.facturas].join(', ') || '—')}</td>
+                  </tr>
+                  ${expandedDrawer}
+                `;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr class="font-bold text-slate-900 bg-slate-100 border-t-2 border-slate-300">
+                <td colspan="5" class="px-3 py-2.5 text-right uppercase text-[11px] tracking-wider text-slate-600">Totales por Canal:</td>
+                ${allCanalesCols.map(c => {
+                  const colSum = skuGroups.reduce((a, g) => a + (g.byCanal[c] || 0), 0);
+                  return `<td class="px-3 py-2.5 num font-extrabold text-rose-800 border-l border-slate-200">${fn(colSum)}</td>`;
+                }).join('')}
+                <td class="px-3 py-2.5 num font-extrabold text-slate-950 text-sm bg-slate-200/80 border-l border-slate-300">${fn(totalUnits)}</td>
+                <td class="px-3 py-2.5 num font-mono font-extrabold text-rose-950">${fmoney(totalFob)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    `;
+  } else if (dt.viewMode === 'matrix') {
+    tableContentHtml = `
+      <div class="bg-white border rounded-xl overflow-hidden shadow-2xs">
+        <div class="px-4 py-2.5 bg-slate-50 border-b flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-700">Matriz de Curva de Tallas Perdidas (SKU × Talla)</span>
+          <span class="text-[11px] text-slate-500">${fn(skuGroups.length)} códigos · ${fn(allTallasCols.length)} tallas</span>
+        </div>
+        <div class="overflow-x-auto" style="max-height:calc(100vh - 390px)">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="text-left text-slate-700 bg-slate-100 border-b">
+                <th class="px-3 py-2.5 sticky left-0 z-10 bg-slate-100 shadow-[1px_0_0_#cbd5e1]">Código</th>
+                <th class="px-3 py-2.5">Descripción</th>
+                <th class="px-3 py-2.5">Canales DROP</th>
+                ${allTallasCols.map(t => `<th class="px-2.5 py-2.5 text-center font-mono border-l border-slate-200/70">${esc(t)}</th>`).join('')}
+                <th class="px-3 py-2.5 text-right font-extrabold bg-rose-50 text-rose-950 border-l border-slate-300">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${skuGroups.map(g => {
+                const cList = Object.entries(g.byCanal).map(([c, q]) => `${c} (${q})`).join(', ');
+                return `
+                  <tr class="border-t hover:bg-rose-50/30">
+                    <td class="px-3 py-2 font-mono font-bold text-slate-900 sticky left-0 bg-white shadow-[1px_0_0_#e2e8f0] whitespace-nowrap">
+                      <button type="button" onclick="openSkuTrace('${esc(g.codigo)}')" class="text-indigo-900 hover:underline font-bold">${esc(g.codigo)}</button>
+                    </td>
+                    <td class="px-3 py-2 max-w-[14rem] truncate" title="${esc(g.descripcion)}">${esc(g.descripcion)}</td>
+                    <td class="px-3 py-2 text-[11px] font-semibold text-rose-800 whitespace-nowrap">${esc(cList)}</td>
+                    ${allTallasCols.map(t => {
+                      const q = g.byTalla[t] || 0;
+                      return `<td class="px-2.5 py-2 text-center font-mono border-l border-slate-100 ${q > 0 ? 'font-bold text-rose-700 bg-rose-50/60' : 'text-slate-300'}">${q > 0 ? fn(q) : '·'}</td>`;
+                    }).join('')}
+                    <td class="px-3 py-2 num font-extrabold text-rose-950 bg-rose-50/80 border-l border-slate-200">${fn(g.totalQty)}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr class="font-bold bg-slate-100 border-t-2 border-slate-300">
+                <td colspan="3" class="px-3 py-2.5 text-right uppercase text-[11px] text-slate-600">Total por Talla:</td>
+                ${allTallasCols.map(t => {
+                  const s = skuGroups.reduce((a, g) => a + (g.byTalla[t] || 0), 0);
+                  return `<td class="px-2.5 py-2.5 text-center font-mono font-extrabold text-rose-800 border-l border-slate-200">${fn(s)}</td>`;
+                }).join('')}
+                <td class="px-3 py-2.5 num font-extrabold text-slate-950 bg-rose-100/80 border-l border-slate-300">${fn(totalUnits)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    `;
+  } else {
+    tableContentHtml = `
+      <div class="bg-white border rounded-xl overflow-auto shadow-2xs" style="max-height:calc(100vh - 390px)">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-left text-slate-600 bg-slate-100 border-b">
+              ${['Detalle compra', 'Código', 'Descripción', 'Color', 'Talla', 'Canal DROP', 'Factura', 'Embarque', 'Cantidad', 'FOB', 'Valor Neto', 'OBS'].map((h, i) => `<th class="px-3 py-2.5 whitespace-nowrap ${i >= 8 && i <= 10 ? 'text-right' : ''}">${h}</th>`).join('')}
             </tr>
-          `).join('') || '<tr><td colspan="11" class="p-6 text-center text-slate-500">No hay cancelaciones (DROP) en esta temporada.</td></tr>'}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            ${filteredRows.map(r => {
+              const cDrop = r['Canal Final'] || r['Canal Inicial'] || r['Referencia compra'] || '';
+              return `
+              <tr class="border-t hover:bg-rose-50/30">
+                <td class="px-3 py-1.5 whitespace-nowrap">${esc(r['Detalle compra'] || 'COMPRA CANAL')}</td>
+                <td class="px-3 py-1.5 font-mono font-bold"><button type="button" onclick="openSkuTrace('${esc(r['Código'])}')" class="text-indigo-900 hover:underline">${esc(r['Código'])}</button></td>
+                <td class="px-3 py-1.5 max-w-[14rem] truncate" title="${esc(r['Descripción'])}">${esc(r['Descripción'])}</td>
+                <td class="px-3 py-1.5">${esc(r['Color'])}</td>
+                <td class="px-3 py-1.5 font-mono font-bold">${esc(r['Talla'])}</td>
+                <td class="px-3 py-1.5 font-bold text-rose-800">${esc(cDrop)}</td>
+                <td class="px-3 py-1.5 font-mono">${esc(r['Factura'] || '—')}</td>
+                <td class="px-3 py-1.5">${esc(r['EMBARQUE'] || '—')}</td>
+                <td class="px-3 py-1.5 num font-bold text-rose-700">${fn(r['Cantidad'])}</td>
+                <td class="px-3 py-1.5 num">${Number(r['FOB'] || 0).toFixed(2)}</td>
+                <td class="px-3 py-1.5 num font-semibold">${fmoney(r['Valor Neto'] || calcValorNeto(r))}</td>
+                <td class="px-3 py-1.5 text-slate-500">${esc(r['OBS'] || '')}</td>
+              </tr>
+            `}).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  view.innerHTML = `
+    ${rbkDropBanner}
+    <div class="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-4">
+      ${kpi('Unidades Perdidas (DROP)', fn(totalUnits), `${fn(uniqueSkusCount)} códigos afectados`, 'border-l-4 border-l-red-600', totalFob)}
+      ${kpi('Líneas en DROP', fn(filteredRows.length), 'Registros cancelados por marca', 'border-l-4 border-l-red-600')}
+      <div class="panel-card p-4 col-span-2 flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Distribución de DROP por Canal</span>
+          <span class="text-[11px] text-slate-400">Impacto en unidades y FOB</span>
+        </div>
+        ${canalBreakdown.length ? `
+          <div class="flex flex-wrap gap-2">
+            ${canalBreakdown.map(cb => {
+              const pct = totalUnits > 0 ? ((cb.units / totalUnits) * 100).toFixed(1) : '0.0';
+              return `
+                <div class="flex-1 min-w-[130px] p-2.5 rounded-lg bg-rose-50/60 border border-rose-200/80">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="font-extrabold text-rose-950">${esc(cb.canal)}</span>
+                    <span class="font-mono text-[11px] font-bold text-rose-700">${pct}%</span>
+                  </div>
+                  <div class="text-base font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(cb.units)} <span class="text-[11px] font-normal text-slate-500">unid.</span></div>
+                  <div class="text-[11px] font-mono text-slate-600">${fmoney(cb.fob)} · ${fn(cb.skus.size)} SKUs</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : `<div class="text-xs text-slate-400 italic py-2">Sin unidades en DROP en esta temporada.</div>`}
+      </div>
     </div>
+
+    <!-- Barra de Controles Dinámicos y Exportación -->
+    <div class="bg-white border rounded-xl p-3 mb-3 flex flex-wrap items-center justify-between gap-2.5">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="inline-flex rounded-lg border bg-slate-100 p-0.5 text-xs font-semibold">
+          <button type="button" id="btnDropViewPivot" class="px-3 py-1.5 rounded-md transition ${dt.viewMode === 'pivot' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}">Tabla Dinámica (SKU × Canal)</button>
+          <button type="button" id="btnDropViewMatrix" class="px-3 py-1.5 rounded-md transition ${dt.viewMode === 'matrix' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}">Matriz por Talla</button>
+          <button type="button" id="btnDropViewDetail" class="px-3 py-1.5 rounded-md transition ${dt.viewMode === 'detail' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'}">Detalle Filas</button>
+        </div>
+
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2"></i>
+          <input type="text" id="inpDropSearch" class="border rounded-lg pl-8 pr-3 py-1.5 text-xs w-52 bg-white" placeholder="Buscar SKU, descripción, talla..." value="${esc(dt.q)}">
+        </div>
+
+        <select id="selDropCanal" class="border rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium">
+          <option value="">Todos los canales (${canalesList.length})</option>
+          ${canalesList.map(c => `<option value="${esc(c)}" ${dt.canal === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+
+        ${facturasList.length ? `
+        <select id="selDropFact" class="border rounded-lg px-2.5 py-1.5 text-xs bg-white">
+          <option value="">Todas las facturas (${facturasList.length})</option>
+          ${facturasList.map(f => `<option value="${esc(f)}" ${dt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
+        </select>` : ''}
+      </div>
+
+      <button type="button" id="btnExportDynamicDrops" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 !text-xs">
+        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Exportar Tabla Dinámica Excel
+      </button>
+    </div>
+
+    ${tableContentHtml}
   `;
+
+  icons();
+  $('btnDropViewPivot').onclick = () => { S.dropTab.viewMode = 'pivot'; vDrop(); };
+  $('btnDropViewMatrix').onclick = () => { S.dropTab.viewMode = 'matrix'; vDrop(); };
+  $('btnDropViewDetail').onclick = () => { S.dropTab.viewMode = 'detail'; vDrop(); };
+  let dTimer;
+  $('inpDropSearch').oninput = e => {
+    S.dropTab.q = e.target.value;
+    clearTimeout(dTimer);
+    dTimer = setTimeout(vDrop, 160);
+  };
+  $('selDropCanal').onchange = e => { S.dropTab.canal = e.target.value; vDrop(); };
+  if ($('selDropFact')) {
+    $('selDropFact').onchange = e => { S.dropTab.factura = e.target.value; vDrop(); };
+  }
+  $('btnExportDynamicDrops').onclick = () => exportDropsPivotExcel(pivotData, filteredRows);
 }
+
 /* ============ INICIALIZACIÓN ============ */
 $('fBuyInit').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadBuyInitial(f); };
 $('fBuyExtra').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadBuyExtra(f); };
