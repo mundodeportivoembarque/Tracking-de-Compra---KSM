@@ -5292,91 +5292,6 @@ async function processBrandBilling(file, ptsFile = null) {
       }
     }
 
-    // Detección automática de DROPs para Adidas:
-    // Compara unidades facturadas vs. compra inicial por (Material + Talla SAP + Canal Inicial deducido de Purchase order no. (35 char))
-    // Si tiene menos unidades facturadas que su compra inicial en ese código + talla + canal, la diferencia restante en 10A se identifica como DROP directo en ese canal.
-    const detectedAdidasDrops = [];
-    if (!isReebok) {
-      const adiBilledByKey = new Map();
-      for (const dl of disaggregatedLines) {
-        if (dl.qty <= 0) continue;
-        const cIniStr = String(dl.canalInicial || resolveCanalInicialFromPO(dl.poNumber) || 'TIENDAS').trim().toUpperCase();
-        const k = `${norm(dl.temporada)}|${dl.codNorm}|${normTalla(dl.tallaSap)}|${norm(cIniStr)}`;
-        if (!adiBilledByKey.has(k)) {
-          adiBilledByKey.set(k, {
-            temporada: dl.temporada,
-            material: dl.material,
-            codNorm: dl.codNorm,
-            tallaSap: dl.tallaSap,
-            gridValue: dl.gridValue,
-            descripcion: dl.descripcion || '',
-            color: dl.color || '',
-            canalInicial: cIniStr,
-            poNumber: dl.poNumber || '',
-            fob: dl.netPrice || 0,
-            billedQty: 0,
-            invoices: new Set(),
-            pts: new Set()
-          });
-        }
-        const rec = adiBilledByKey.get(k);
-        rec.billedQty += Number(dl.qty || 0);
-        if (dl.invoiceNumber) rec.invoices.add(dl.invoiceNumber);
-        if (dl.ptKey) rec.pts.add(dl.ptKey);
-      }
-
-      const initialBoughtByKey = new Map();
-      const rem10ARowsByKey = new Map();
-
-      for (const r of allBrandRows) {
-        const stage = st(r);
-        if (stage === 'd') continue;
-        const q = Number(r['Cantidad'] || 0);
-        if (q <= 0) continue;
-        const tNorm = norm(r.season || r['Temporada'] || S.season);
-        const cNorm = norm(r['Código']);
-        const rTal = normTalla(r['Talla']) || (r['Talla marca'] ? normTalla(resolveTallaSapFromGrid(r['Talla marca'], '', sizeLookup, [], { brand: 'Adidas', material: r['Código'] })) : '');
-        const cIniRow = String(r['Canal Inicial'] || (r['Purchase order no. (35 char)'] ? resolveCanalInicialFromPO(r['Purchase order no. (35 char)']) : resolverCanalInicial(r['Referencia compra'], 'Adidas')) || 'TIENDAS').trim().toUpperCase();
-        const fullKey = `${tNorm}|${cNorm}|${rTal}|${norm(cIniRow)}`;
-
-        initialBoughtByKey.set(fullKey, (initialBoughtByKey.get(fullKey) || 0) + q);
-        if (stage === 'o') {
-          if (!rem10ARowsByKey.has(fullKey)) rem10ARowsByKey.set(fullKey, []);
-          rem10ARowsByKey.get(fullKey).push(r);
-        }
-      }
-
-      for (const [k, bRec] of adiBilledByKey.entries()) {
-        const boughtTotal = Number(initialBoughtByKey.get(k) || 0);
-        const remRowsExact = rem10ARowsByKey.get(k) || [];
-        const rem10AExactQty = remRowsExact.reduce((a, r) => a + Number(r['Cantidad'] || 0), 0);
-
-        if (boughtTotal > bRec.billedQty && rem10AExactQty > 0) {
-          const dropQty = Math.min(rem10AExactQty, Math.round((boughtTotal - bRec.billedQty) * 100) / 100);
-          if (dropQty > 0) {
-            const sampleRow = remRowsExact[0];
-            detectedAdidasDrops.push({
-              temporada: bRec.temporada,
-              material: bRec.material,
-              codNorm: bRec.codNorm,
-              tallaSap: bRec.tallaSap,
-              gridValue: bRec.gridValue,
-              descripcion: bRec.descripcion || (sampleRow && sampleRow['Descripción']) || '',
-              color: bRec.color || (sampleRow && sampleRow['Color']) || '',
-              canalInicial: bRec.canalInicial,
-              poNumber: bRec.poNumber || (sampleRow && sampleRow['Purchase order no. (35 char)']) || '',
-              fob: bRec.fob || (sampleRow && Number(sampleRow['FOB'])) || 0,
-              boughtQty: boughtTotal,
-              billedQty: bRec.billedQty,
-              dropQty,
-              invoices: [...bRec.invoices].join(', '),
-              pts: [...bRec.pts].join(', ')
-            });
-          }
-        }
-      }
-    }
-
     // Construir lista de alertas de DROP por talla para Reebok (donde Reques quantity > Final Delivery QTY TOTAL)
     const detectedReebokDrops = [];
     if (isReebok) {
@@ -5577,25 +5492,6 @@ async function processBrandBilling(file, ptsFile = null) {
            <div>${breakdown || '<span class="text-slate-500">Sin unidades cruzadas en 10A</span>'}</div>
          </div>
          ${rbkDropAlertHtml}
-         ${(!isReebok && detectedAdidasDrops.length > 0) ? `
-         <div class="p-3 rounded-lg bg-rose-50 border-2 border-rose-300 text-rose-950 text-xs space-y-1.5">
-           <div class="font-bold text-rose-900 flex items-center justify-between gap-2">
-             <span class="flex items-center gap-1.5"><i data-lucide="alert-octagon" class="w-4 h-4 text-rose-700"></i> DROPs Detectados en Adidas (Facturado &lt; Compra Inicial): ${fn(detectedAdidasDrops.length)} talla(s) · ${fn(detectedAdidasDrops.reduce((a, x) => a + x.dropQty, 0))} unid.</span>
-           </div>
-           <p class="text-rose-800">El canal se tomó directamente del <code>Purchase order no. (35 char)</code> de la factura (sin pedir selección manual). Marca la casilla si deseas pasar estas diferencias restantes de <b>10A</b> directamente a <b>DROP-CANCELADO MARCA</b>:</p>
-           <label class="flex items-center gap-2 font-semibold text-rose-950 bg-white/90 px-2.5 py-1.5 rounded border border-rose-200 cursor-pointer">
-             <input type="checkbox" id="chkApplyAdidasDropsAuto" class="w-4 h-4 accent-rose-700" checked>
-             <span>Aplicar automáticamente estas ${fn(detectedAdidasDrops.reduce((a, x) => a + x.dropQty, 0))} unid. a DROP-CANCELADO MARCA al confirmar</span>
-           </label>
-           <div class="max-h-28 overflow-y-auto bg-white/80 rounded border border-rose-200 p-2 space-y-1 text-[11px]">
-             ${detectedAdidasDrops.map(d => `
-               <div class="flex flex-wrap items-center justify-between gap-2 border-b border-rose-100 pb-1 last:border-0 last:pb-0">
-                 <span><b>${esc(d.material)}</b> · Talla <b>${esc(d.tallaSap)}</b> · Canal: <b>${esc(d.canalInicial)}</b> (Comp: ${fn(d.boughtQty)} / Fact: ${fn(d.billedQty)})</span>
-                 <span class="font-bold text-rose-700">DROP: ${fn(d.dropQty)} u.</span>
-               </div>
-             `).join('')}
-           </div>
-         </div>` : ''}
          ${ptsSummaryHtml}
          ${dupWarningHtml}
          ${unmatchedHtml}
@@ -5625,7 +5521,6 @@ async function processBrandBilling(file, ptsFile = null) {
 
     const userEmb = $('inpBillEmb') ? $('inpBillEmb').value.trim() : '';
     const userFechaIng = $('inpBillFechaIng') ? $('inpBillFechaIng').value.trim() : '';
-    const applyAdidasDropsChecked = $('chkApplyAdidasDropsAuto') ? $('chkApplyAdidasDropsAuto').checked : false;
 
     disaggregatedLines.forEach(l => {
       if (!l.isForwarder && userEmb) l.embarque = userEmb;
@@ -5642,61 +5537,6 @@ async function processBrandBilling(file, ptsFile = null) {
         item.row['Fecha de ingreso embarque'] = '';
       }
     });
-
-    let appliedAdidasDropUnits = 0;
-    if (!isReebok && applyAdidasDropsChecked && detectedAdidasDrops.length > 0) {
-      for (const dItem of detectedAdidasDrops) {
-        let remDrop = Number(dItem.dropQty || 0);
-        if (remDrop <= 0) continue;
-        const tNorm = norm(dItem.temporada);
-        const talNorm = normTalla(dItem.tallaSap);
-        const cNormTarget = norm(dItem.canalInicial);
-
-        const cand10A = allBrandRows.filter(r =>
-          st(r) === 'o' &&
-          Number(r['Cantidad'] || 0) > 0 &&
-          norm(r.season || r['Temporada'] || S.season) === tNorm &&
-          norm(r['Código']) === dItem.codNorm &&
-          normTalla(r['Talla']) === talNorm &&
-          norm(r['Canal Inicial'] || (r['Purchase order no. (35 char)'] ? resolveCanalInicialFromPO(r['Purchase order no. (35 char)']) : resolverCanalInicial(r['Referencia compra'], 'Adidas')) || 'TIENDAS') === cNormTarget
-        );
-
-        for (let i = 0; i < cand10A.length && remDrop > 0; i++) {
-          const baseRow = cand10A[i];
-          const avail = Number(baseRow['Cantidad'] || 0);
-          if (avail <= 0 || st(baseRow) !== 'o') continue;
-
-          if (avail <= remDrop) {
-            remDrop -= avail;
-            appliedAdidasDropUnits += avail;
-            baseRow['Etapa'] = ED;
-            baseRow['Canal Final'] = dItem.canalInicial;
-            if (dItem.invoices) baseRow['Factura'] = dItem.invoices;
-            if (dItem.poNumber && !baseRow['Purchase order no. (35 char)']) baseRow['Purchase order no. (35 char)'] = dItem.poNumber;
-            baseRow['OBS'] = `DROP ADIDAS (${dItem.canalInicial})`.trim();
-            baseRow['Valor Neto'] = calcValorNeto(baseRow);
-            changed.add(baseRow);
-          } else {
-            const dropSplit = { ...baseRow };
-            delete dropSplit.id;
-            dropSplit['Cantidad'] = remDrop;
-            dropSplit['Etapa'] = ED;
-            dropSplit['Canal Final'] = dItem.canalInicial;
-            if (dItem.invoices) dropSplit['Factura'] = dItem.invoices;
-            if (dItem.poNumber && !dropSplit['Purchase order no. (35 char)']) dropSplit['Purchase order no. (35 char)'] = dItem.poNumber;
-            dropSplit['OBS'] = `DROP ADIDAS (${dItem.canalInicial})`.trim();
-            dropSplit['Valor Neto'] = calcValorNeto(dropSplit);
-
-            baseRow['Cantidad'] = avail - remDrop;
-            baseRow['Valor Neto'] = calcValorNeto(baseRow);
-            appliedAdidasDropUnits += remDrop;
-            remDrop = 0;
-            changed.add(baseRow);
-            added.push(dropSplit);
-          }
-        }
-      }
-    }
 
     busy('Guardando descuento de facturación en la base local…');
     await tick();
@@ -5725,9 +5565,7 @@ async function processBrandBilling(file, ptsFile = null) {
     } else {
       const postChoice = await modal(
         'Facturación Aplicada con Éxito',
-        `Se descontaron <b>${fn(matchedUnits)} unidades</b> de <b>10A</b> y pasaron a <b>P24</b>.` +
-        (appliedAdidasDropUnits > 0 ? `<br>🚫 Se registraron automáticamente <b>${fn(appliedAdidasDropUnits)} unidades</b> en <b>DROP-CANCELADO MARCA</b> (según canal de <code>Purchase order no. (35 char)</code>).` : '') +
-        `<br>
+        `Se descontaron <b>${fn(matchedUnits)} unidades</b> de <b>10A</b> y pasaron a <b>P24</b>.<br>
          <span class="text-xs text-slate-600">• Puedes visualizar las ${fn(S.lastBillingPreview.headers.length)} columnas transformadas (incluyendo filtros de <b>FORWARDER</b>) o descargar el Excel maestro.</span>`,
         [['Cerrar', 'c'], ['Ver Vista Previa', 'view'], ['Descargar Excel Maestro', 'dl', 1]]
       );
