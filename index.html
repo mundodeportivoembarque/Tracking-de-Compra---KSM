@@ -2380,11 +2380,19 @@ async function loadOcFinalProducto(file) {
     const priceChangedSkus = new Set();
     let priceChangedUnits = 0;
 
-    for (const o of raw) {
+    // Ordenar las filas de la OC final para procesar primero las que tienen Canal Inicial / Referencia más específicos
+    // (evitando que una fila genérica sin canal consuma el registro P24 que le pertenece a una fila específica como WEB REEBOK TIENDAS)
+    const rawSorted = [...raw].sort((a, b) => {
+      const aSpec = (getRowVal(a, ['Canal Inicial', 'CANAL INICIAL', 'CANAL']) ? 2 : 0) + (getRowVal(a, ['Referencia compra', 'REFERENCIA COMPRA']) ? 1 : 0);
+      const bSpec = (getRowVal(b, ['Canal Inicial', 'CANAL INICIAL', 'CANAL']) ? 2 : 0) + (getRowVal(b, ['Referencia compra', 'REFERENCIA COMPRA']) ? 1 : 0);
+      return bSpec - aSpec;
+    });
+
+    for (const o of rawSorted) {
       const temp = norm(getRowVal(o, ['Temporada', 'Season']));
       const cod = norm(getRowVal(o, ['Código', 'Codigo', 'SAP']));
       const col = norm(getRowVal(o, ['Color']));
-      const tal = normTalla(getRowVal(o, ['Talla']));
+      const tal = normTalla(getRowVal(o, ['Talla', 'TALLA SAP', 'Talla SAP']));
       const talM = normTalla(getRowVal(o, ['Talla marca', 'Talla Marca', 'TALLA MARCA'])) || tal;
       const qty = Number(String(getRowVal(o, ['Cantidad', 'QTY', 'LPN DETAIL SIZE VALUE']) || 0).replace(',', '.')) || 0;
       const fact = norm(getRowVal(o, ['Factura', 'No FACTURA', 'No FACTURA ']));
@@ -2392,16 +2400,25 @@ async function loadOcFinalProducto(file) {
       const emb = norm(embRaw);
       const fFact = fdate(getRowVal(o, ['Fecha de factura']));
       const fIngEmb = fdate(getRowVal(o, ['Fecha de ingreso embarque', 'Fecha ingreso embarque', 'FECHA DE INGRESO EMBARQUE', 'FECHA INGRESO EMBARQUE', 'Fecha Ingreso', 'Fecha estimada ingreso', 'Fecha Arribo']));
-      const cIniRaw = getRowVal(o, ['Canal Inicial', 'CANAL INICIAL']);
-      const cIni = norm(normalizarCanal(cIniRaw));
-      const refFinRaw = String(getRowVal(o, ['Referencia compra', 'REFERENCIA COMPRA', 'Referencia compra final', 'CENTRO', 'TIENDA', 'DESTINO TIENDA']) ?? '').trim().toUpperCase();
-      const cFinalRaw = getRowVal(o, ['CANAL FINAL', 'CANAL FINAL ', 'CANAL_FINAL', 'Canal Final', 'CANAL']);
-      const rawFinalTarget = normalizarCanal(cFinalRaw || refFinRaw);
-      const isStoreTarget = rawFinalTarget === 'TIENDAS' || (refFinRaw && resolverCanalInicial(refFinRaw, S.brand) === 'TIENDAS');
-      const cFinal = isStoreTarget ? 'TIENDAS' : rawFinalTarget;
-      const refFinalStore = (refFinRaw && refFinRaw !== 'TIENDAS')
-        ? refFinRaw
-        : ((cFinalRaw && normalizarCanal(cFinalRaw) !== 'TIENDAS' && resolverCanalInicial(cFinalRaw, S.brand) === 'TIENDAS') ? normalizarCanal(cFinalRaw) : '');
+      const refCompraRaw = String(getRowVal(o, ['Referencia compra', 'REFERENCIA COMPRA', 'Referencia compra final', 'CENTRO', 'TIENDA', 'DESTINO TIENDA']) ?? '').trim().toUpperCase();
+      const cIniColRaw = String(getRowVal(o, ['Canal Inicial', 'CANAL INICIAL', 'CANAL']) ?? '').trim().toUpperCase();
+      // Canal inicial efectivo de la fila de Producto: si viene columna CANAL / Canal Inicial úsala (normalizada, o resuelta si es tienda), y si no, dedúcela desde Referencia compra
+      const cIniEffective = cIniColRaw
+        ? (resolverCanalInicial(cIniColRaw, S.brand) || normalizarCanal(cIniColRaw))
+        : resolverCanalInicial(refCompraRaw, S.brand);
+      const cIni = norm(cIniEffective);
+
+      const cFinalRaw = String(getRowVal(o, ['CANAL FINAL', 'CANAL FINAL ', 'CANAL_FINAL', 'Canal Final']) ?? '').trim().toUpperCase();
+      const rawFinalTarget = normalizarCanal(cFinalRaw || refCompraRaw);
+      const isStoreTarget = rawFinalTarget === 'TIENDAS' || (refCompraRaw && resolverCanalInicial(refCompraRaw, S.brand) === 'TIENDAS' && !cFinalRaw);
+      const cFinal = cFinalRaw
+        ? (normalizarCanal(cFinalRaw) === 'TIENDAS' || TIENDAS_ADIDAS.has(cFinalRaw) || TIENDAS_REEBOK.has(cFinalRaw) ? 'TIENDAS' : normalizarCanal(cFinalRaw))
+        : (isStoreTarget ? 'TIENDAS' : rawFinalTarget);
+
+      // Referencia compra final: mantener la columna Referencia compra de la OC final (ej. WEB REEBOK TIENDAS, CUENCA, QUICENTRO SUR, CONDADO, SOL)
+      const refFinalStore = refCompraRaw
+        ? refCompraRaw
+        : ((cFinalRaw && cFinalRaw !== 'TIENDAS' && resolverCanalInicial(cFinalRaw, S.brand) === 'TIENDAS') ? cFinalRaw : '');
       const parsePrice = v => Number(String(v ?? '').replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0;
       const fobMarca = parsePrice(getRowVal(o, ['FOB MARCA', 'FOB Marca', 'FOB_MARCA', 'FOB FINAL', 'FOB Final', 'FOB.1']));
       const pvpFin = parsePrice(getRowVal(o, ['PVP final', 'PVP FINAL', 'PVP Final', 'PVP.1', 'PVP_FINAL']));
@@ -2411,10 +2428,10 @@ async function loadOcFinalProducto(file) {
       const rawPool = mergePools(
         (temp && cIni && tal) ? p24SeasonChanExact.get(`${temp}|${cod}|${col}|${tal}|${emb}|${fact}|${cIni}`) : null,
         (cIni && tal) ? p24ChanExact.get(`${cod}|${col}|${tal}|${emb}|${fact}|${cIni}`) : null,
-        (temp && tal) ? p24SeasonExact.get(`${temp}|${cod}|${col}|${tal}|${emb}|${fact}`) : null,
-        tal ? p24ExactIndex.get(`${cod}|${col}|${tal}|${emb}|${fact}`) : null,
         (temp && fact && cIni && tal) ? p24SeasonFactChan.get(`${temp}|${cod}|${col}|${tal}|${fact}|${cIni}`) : null,
         (fact && cIni && tal) ? p24FactChan.get(`${cod}|${col}|${tal}|${fact}|${cIni}`) : null,
+        (temp && tal) ? p24SeasonExact.get(`${temp}|${cod}|${col}|${tal}|${emb}|${fact}`) : null,
+        tal ? p24ExactIndex.get(`${cod}|${col}|${tal}|${emb}|${fact}`) : null,
         (temp && fact && tal) ? p24SeasonFact.get(`${temp}|${cod}|${col}|${tal}|${fact}`) : null,
         (fact && tal) ? p24FactIndex.get(`${cod}|${col}|${tal}|${fact}`) : null,
         talM ? p24ExactTalMIndex.get(`${cod}|${col}|${talM}|${emb}|${fact}`) : null,
@@ -2427,14 +2444,38 @@ async function loadOcFinalProducto(file) {
         tal ? p24FallbackIndex.get(`${cod}|${col}|${tal}`) : null,
         talM ? p24FallbackTalMIndex.get(`${cod}|${col}|${talM}`) : null
       );
-      const pool = rawPool.filter(r => {
-        if (r['Cantidad'] <= 0 || r['Canal Final']) return false;
-        const rFact = norm(r['Factura']);
-        if (fact && rFact && rFact !== fact) return false;
-        const rEmb = norm(r['EMBARQUE']);
-        if (emb && rEmb && rEmb !== emb) return false;
-        return true;
-      });
+
+      // Puntuar cada candidato P24 combinando ID compuesto:
+      // Código + Color + Talla + Embarque + Factura + Canal Inicial + Referencia compra + Cantidad exacta
+      const normRefTarget = norm(refCompraRaw);
+      const normCIniColTarget = norm(cIniColRaw);
+      const scoreP24Candidate = r => {
+        let sc = 0;
+        if (temp && norm(r.season || r['Temporada']) === temp) sc += 200;
+        const rRef = norm(r['Referencia compra']);
+        const rCi = norm(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand));
+        // Coincidencia exacta por Referencia compra (ej. WEB REEBOK TIENDAS == WEB REEBOK TIENDAS, CUENCA == CUENCA, CONDADO == CONDADO)
+        if (normRefTarget && rRef && rRef === normRefTarget) sc += 150;
+        else if (normCIniColTarget && rRef && rRef === normCIniColTarget) sc += 120;
+        // Coincidencia por Canal Inicial normalizado (TIENDAS == TIENDAS, WEB == WEB)
+        if (cIni && rCi && rCi === cIni) sc += 80;
+        // Coincidencia exacta de cantidad de la fila (ej. 3 == 3, 2 == 2, 1 == 1)
+        if (Math.abs(Number(r['Cantidad']) - qty) < 0.001) sc += 40;
+        else if (Number(r['Cantidad']) > qty) sc += 15;
+        return sc;
+      };
+
+      const pool = rawPool
+        .filter(r => {
+          if (r['Cantidad'] <= 0 || r['Canal Final']) return false;
+          const rFact = norm(r['Factura']);
+          if (fact && rFact && rFact !== fact) return false;
+          const rEmb = norm(r['EMBARQUE']);
+          if (emb && rEmb && rEmb !== emb) return false;
+          return true;
+        })
+        .sort((a, b) => scoreP24Candidate(b) - scoreP24Candidate(a));
+
       if (!pool.length) {
         unmatched.push({ cod: getRowVal(o, ['Código', 'Codigo', 'SAP']), col: o['Color'], tal: o['Talla'], qty });
         continue;
@@ -8136,7 +8177,7 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
             <th class="px-3 py-2 text-right font-semibold">Ent.</th>
             <th class="px-3 py-2 text-right font-semibold text-rose-800">DROP</th>
             <th class="px-3 py-2 font-semibold min-w-[220px]">Compra Inicial por Canal (Filas)</th>
-            <th class="px-3 py-2 font-semibold">Saldo 10A</th>
+            <th class="px-3 py-2 text-right font-semibold text-emerald-900">Fact. P24</th>
             <th class="px-3 py-2 font-semibold min-w-[290px]">Reparto DROP por Canal (Divisible)</th>
           </tr>
         </thead>
@@ -8182,7 +8223,7 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
               const curVal = Number((it.allocations && it.allocations[cName]) || 0);
               const availObj = it.channels10A.find(x => x.canal === cName);
               const initObj = (it.initialChannels10A || []).find(x => x.canal === cName);
-              const maxHint = availObj ? `10A: ${availObj.avail}` : (initObj ? `Comp: ${initObj.qty}` : '0');
+              const maxHint = initObj ? `Comp: ${initObj.qty}` : (availObj ? `Disp: ${availObj.avail}` : '0');
               return `
                 <div class="flex items-center justify-between gap-2 py-1 px-2 rounded ${curVal > 0 ? 'bg-rose-50/90 border border-rose-200' : 'bg-slate-50/70 border border-slate-200/70'}">
                   <div class="min-w-0">
@@ -8209,11 +8250,7 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
               <td class="px-3 py-2 num text-emerald-800 font-semibold">${fn(it.delivTotal)}</td>
               <td class="px-3 py-2 num font-extrabold text-rose-700 bg-rose-50/70">${fn(it.dropQty)}</td>
               <td class="px-3 py-2">${initRowsHtml}</td>
-              <td class="px-3 py-2 text-[11px] text-slate-600 whitespace-nowrap">
-                ${it.channels10A.length
-                  ? `<div class="space-y-1">${it.channels10A.map(c => `<div class="flex items-center justify-between gap-2 bg-amber-50/80 border border-amber-200 px-2 py-0.5 rounded"><span>${esc(c.canal)}</span><b>${fn(c.avail)} u.</b></div>`).join('')}</div>`
-                  : '<span class="text-amber-700 font-semibold">Sin saldo 10A</span>'}
-              </td>
+              <td class="px-3 py-2 num font-bold text-emerald-900 bg-emerald-50/50 whitespace-nowrap">${fn(it.delivTotal)} u.</td>
               <td class="px-3 py-2">
                 <div class="space-y-1" data-split-box="${esc(it.id)}">
                   ${splitControlsHtml}
