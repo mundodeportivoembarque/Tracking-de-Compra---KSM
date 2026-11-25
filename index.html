@@ -4873,6 +4873,7 @@ async function processBrandBilling(file, ptsFile = null) {
     if (!raw.length) throw new Error('No se encontraron filas en el archivo de facturación.');
 
     const sizeLookup = buildTallaSapLookup();
+    const revSizeLookup = buildReverseTallaLookup();
     const allBrandRows = await getAllBrandRows(S.brand);
 
     const existingP24Invoices = new Set();
