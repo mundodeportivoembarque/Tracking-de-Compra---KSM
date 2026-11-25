@@ -150,41 +150,68 @@ function resolveCanalInicialWithMeta(poStr) {
     return { canal: S.poCanalOverrides[u], confident: true, reason: 'Asignado manualmente' };
   }
 
-  // Analizar únicamente lo que va después de la temporada (después del primer guion)
-  const dashIdx = u.indexOf('-');
-  const afterDash = dashIdx !== -1
-    ? u.slice(dashIdx + 1).trim()
-    : u.replace(/^(FW|SS|S)\d{2}(Q\d)?\s*/, '').trim();
-  const firstSeg = afterDash.split('-')[0].trim();
+  // Limpiar prefijo de temporada (ej. FW26-, FW26Q4-, SS27-, S26-) y analizar el segmento principal del canal
+  const cleaned = u
+    .replace(/^(FW|SS)\d{2}(Q\d)?[\s._-]*/i, '')
+    .replace(/^S\d{2}(Q\d)?[\s._-]*/i, '')
+    .trim();
+  const dashIdx = cleaned.indexOf('-');
+  const afterDash = dashIdx !== -1 ? cleaned.slice(dashIdx + 1).trim() : cleaned;
+  const firstSeg = (dashIdx !== -1 ? cleaned.slice(0, dashIdx) : cleaned.split(/[\s_]/)[0]).trim();
+  const secondSeg = afterDash.split('-')[0].trim();
 
-  // Regla explícita: Todo Purchase Order con "-EC EC-" o segmento "EC EC" pertenece a TIENDAS
-  if (firstSeg === 'EC EC' || u.includes('-EC EC-') || afterDash.startsWith('EC EC-') || afterDash.includes('-EC EC')) {
+  // Reglas explícitas de canal (evaluadas en orden estricto para evitar cruces entre TND, MYR y MS)
+  if (firstSeg === 'EC EC' || u.includes('-EC EC-') || cleaned.startsWith('EC EC-') || cleaned.includes('EC EC')) {
     return { canal: 'TIENDAS', confident: true, reason: 'Regla -EC EC- → TIENDAS' };
   }
 
-  if (afterDash.includes('ECOM MD') || afterDash.includes('WEB ADIDAS TIENDAS')) {
+  if (cleaned.includes('ECOM MD') || cleaned.includes('WEB ADIDAS TIENDAS')) {
     return { canal: 'WEB ADIDAS TIENDAS', confident: true, reason: 'Regla ECOM MD' };
   }
 
-  if (/PROV[\s._-]*TAF/.test(afterDash)) return { canal: 'PROVEEDOR TAF', confident: true, reason: 'Regla PROV TAF' };
-  if (/PROV[\s._-]*OUTLET/.test(afterDash) || (afterDash.includes('PROVEEDOREXTRA') && afterDash.includes('CLE'))) return { canal: 'PROVEEDOR OUTLET', confident: true, reason: 'Regla PROV OUTLET' };
-  if (/PROV[\s._-]*MS/.test(afterDash) || afterDash.includes('PROVEEDOREXTRA')) return { canal: 'PROVEEDOR MS', confident: true, reason: 'Regla PROV MS' };
-  if (afterDash.includes('PROVEEDOR') || afterDash.includes('PROVMINI') || firstSeg.startsWith('CLE') || afterDash.includes('PEDIDO MARCA')) return { canal: 'PROVEEDOR', confident: true, reason: 'Regla PROVEEDOR' };
+  if (/PROV[\s._-]*TAF/.test(cleaned)) return { canal: 'PROVEEDOR TAF', confident: true, reason: 'Regla PROV TAF' };
+  if (/PROV[\s._-]*OUTLET/.test(cleaned) || (cleaned.includes('PROVEEDOREXTRA') && cleaned.includes('CLE'))) return { canal: 'PROVEEDOR OUTLET', confident: true, reason: 'Regla PROV OUTLET' };
+  if (/PROV[\s._-]*MS/.test(cleaned) || cleaned.includes('PROVEEDOREXTRA')) return { canal: 'PROVEEDOR MS', confident: true, reason: 'Regla PROV MS' };
+  if (cleaned.includes('PROVEEDOR') || cleaned.includes('PROVMINI') || firstSeg.startsWith('CLE') || cleaned.includes('PEDIDO MARCA')) return { canal: 'PROVEEDOR', confident: true, reason: 'Regla PROVEEDOR' };
 
-  if (firstSeg === 'BH' || afterDash.includes('BIG HEAD')) return { canal: 'BIG HEAD', confident: true, reason: 'Regla BIG HEAD' };
-  if (firstSeg === 'EDCA' || afterDash.includes('-EDCA-') || afterDash.startsWith('EDCA-')) return { canal: 'EDCA', confident: true, reason: 'Regla EDCA' };
-  if (firstSeg === 'EXP' || firstSeg === 'EXPLORER' || firstSeg.startsWith('EXTRA_EXPLO') || afterDash.includes('EXPLORER')) return { canal: 'EXPLORER', confident: true, reason: 'Regla EXPLORER' };
-  if (firstSeg === 'SNK' || firstSeg === 'EXCL_SNK' || firstSeg === 'EXCLU_SNKRS' || afterDash.includes('EXCL_SNK') || afterDash.includes('SNEAKER')) return { canal: 'SNEAKERS', confident: true, reason: 'Regla SNEAKERS' };
-  if (firstSeg === 'TSHOP' || firstSeg === 'TELESHOP' || afterDash.includes('TELESHOP')) return { canal: 'TELESHOP', confident: true, reason: 'Regla TELESHOP' };
-  if (firstSeg === 'POPUP' || firstSeg === 'POP UP' || afterDash.includes('POPUP') || afterDash.includes('POP UP')) return { canal: 'POP UP', confident: true, reason: 'Regla POP UP' };
-  if (firstSeg === 'SPOMA' || firstSeg.startsWith('SPOMAEVENTPACK') || afterDash.includes('-SPOMA')) return { canal: 'SPOMA', confident: true, reason: 'Regla SPOMA' };
-  if (firstSeg === 'TAF' || firstSeg.startsWith('TAF_') || afterDash.includes('CLIMACOOL TAF') || afterDash.includes('-TAF-')) return { canal: 'TAF', confident: true, reason: 'Regla TAF' };
-  if (firstSeg === 'MKT' || firstSeg.includes('15KQUITO') || firstSeg.includes('21KQUITO') || firstSeg.includes('15KQTUITO') || firstSeg.includes('MARATON15K') || afterDash.includes('-MKT-') || afterDash.includes('MKT TRENDS')) return { canal: 'MARKETING', confident: true, reason: 'Regla MARKETING' };
-  if (firstSeg === 'OUT' || firstSeg === 'OUTLET' || firstSeg.startsWith('EXTRA_OUTLETS') || afterDash.includes('OUTLET')) return { canal: 'OUTLET', confident: true, reason: 'Regla OUTLET' };
-  if (firstSeg === 'WEB' || firstSeg === 'EXCL_WEB' || firstSeg === 'MSWEB' || afterDash.includes('-WEB-') || afterDash.includes('EXCL_WEB')) return { canal: 'WEB', confident: true, reason: 'Regla WEB' };
-  if (firstSeg === 'MAYOR' || firstSeg === 'MYR' || firstSeg === 'MAYORISTA' || firstSeg.startsWith('MAYEVENTPACK') || firstSeg === 'MAY' || afterDash.includes('MAYOR')) return { canal: 'MAYORISTA', confident: true, reason: 'Regla MAYORISTA' };
-  if (firstSeg === 'TND' || firstSeg === 'TIENDAS' || firstSeg === 'TIEN' || firstSeg === 'TIEND' || firstSeg === 'OC QUIT' || firstSeg === 'RE_ORDER' || firstSeg === 'REORDER2' || firstSeg === 'FRA' || afterDash.includes('TIENDA') || afterDash.includes('-TND') || afterDash.includes('ECOM MUNDO') || afterDash.includes('MOQ')) return { canal: 'TIENDAS', confident: true, reason: 'Regla TIENDAS' };
-  if (firstSeg === 'MS' || firstSeg.startsWith('MS') || afterDash.includes('MARATHON')) return { canal: 'MARATHON', confident: true, reason: 'Regla MARATHON' };
+  if (firstSeg === 'BH' || cleaned.includes('BIG HEAD')) return { canal: 'BIG HEAD', confident: true, reason: 'Regla BIG HEAD' };
+  if (firstSeg === 'EDCA' || cleaned.includes('-EDCA-') || cleaned.startsWith('EDCA-')) return { canal: 'EDCA', confident: true, reason: 'Regla EDCA' };
+  if (firstSeg === 'EXP' || firstSeg === 'EXPLORER' || firstSeg.startsWith('EXTRA_EXPLO') || cleaned.includes('EXPLORER')) return { canal: 'EXPLORER', confident: true, reason: 'Regla EXPLORER' };
+  if (firstSeg === 'SNK' || firstSeg === 'EXCL_SNK' || firstSeg === 'EXCLU_SNKRS' || cleaned.includes('EXCL_SNK') || cleaned.includes('SNEAKER')) return { canal: 'SNEAKERS', confident: true, reason: 'Regla SNEAKERS' };
+  if (firstSeg === 'TSHOP' || firstSeg === 'TELESHOP' || cleaned.includes('TELESHOP')) return { canal: 'TELESHOP', confident: true, reason: 'Regla TELESHOP' };
+  if (firstSeg === 'POPUP' || firstSeg === 'POP UP' || cleaned.includes('POPUP') || cleaned.includes('POP UP')) return { canal: 'POP UP', confident: true, reason: 'Regla POP UP' };
+  if (firstSeg === 'SPOMA' || firstSeg.startsWith('SPOMAEVENTPACK') || cleaned.includes('-SPOMA')) return { canal: 'SPOMA', confident: true, reason: 'Regla SPOMA' };
+  if (firstSeg === 'TAF' || firstSeg.startsWith('TAF_') || cleaned.includes('CLIMACOOL TAF') || cleaned.includes('-TAF-')) return { canal: 'TAF', confident: true, reason: 'Regla TAF' };
+  if (firstSeg === 'MKT' || cleaned.includes('15KQUITO') || cleaned.includes('21KQUITO') || cleaned.includes('15KQTUITO') || cleaned.includes('MARATON15K') || cleaned.includes('-MKT-') || cleaned.includes('MKT TRENDS')) return { canal: 'MARKETING', confident: true, reason: 'Regla MARKETING' };
+  if (firstSeg === 'OUT' || firstSeg === 'OUTLET' || firstSeg.startsWith('EXTRA_OUTLETS') || cleaned.includes('OUTLET')) return { canal: 'OUTLET', confident: true, reason: 'Regla OUTLET' };
+  if (firstSeg === 'WEB' || firstSeg === 'EXCL_WEB' || firstSeg === 'MSWEB' || cleaned.includes('-WEB-') || cleaned.includes('EXCL_WEB')) return { canal: 'WEB', confident: true, reason: 'Regla WEB' };
+
+  // MAYORISTA: MYR, MAYOR, MAYORISTA, MAY, MAYEVENTPACK
+  if (
+    firstSeg === 'MAYOR' || firstSeg === 'MYR' || firstSeg === 'MAYORISTA' ||
+    firstSeg.startsWith('MAYEVENTPACK') || firstSeg === 'MAY' ||
+    /(?:^|[-_\s])(MYR|MAYOR|MAYORISTA)(?:[-_\s]|$)/.test(cleaned)
+  ) {
+    return { canal: 'MAYORISTA', confident: true, reason: 'Regla MAYORISTA (MYR)' };
+  }
+
+  // TIENDAS: TND, TIENDAS, TIEN, TIEND, OC QUIT, RE_ORDER, REORDER2, FRA
+  if (
+    firstSeg === 'TND' || firstSeg === 'TIENDAS' || firstSeg === 'TIEN' || firstSeg === 'TIEND' ||
+    firstSeg === 'OC QUIT' || firstSeg === 'RE_ORDER' || firstSeg === 'REORDER2' || firstSeg === 'FRA' ||
+    /(?:^|[-_\s])(TND|TIENDAS|TIENDA)(?:[-_\s]|$)/.test(cleaned) ||
+    cleaned.includes('ECOM MUNDO') || cleaned.includes('MOQ')
+  ) {
+    return { canal: 'TIENDAS', confident: true, reason: 'Regla TIENDAS (TND)' };
+  }
+
+  // MARATHON: MS, MARATHON (nunca coincide con TND ni MYR)
+  if (
+    firstSeg === 'MS' || /^MS\d*$/.test(firstSeg) ||
+    /(?:^|[-_\s])(MS|MARATHON)(?:[-_\s]|$)/.test(cleaned)
+  ) {
+    return { canal: 'MARATHON', confident: true, reason: 'Regla MARATHON (MS)' };
+  }
 
   return { canal: 'TIENDAS', confident: false, reason: 'PO nuevo sin regla identificada' };
 }
@@ -4941,7 +4968,7 @@ async function promptReviewPOChannelsModal(poSummaryList, onlyUncertain = true) 
         </thead>
         <tbody>
           ${items.map((p, idx) => {
-            const suggested = p.suggestedFrom10A || p.canal || 'TIENDAS';
+            const suggested = p.canal || p.suggestedFrom10A || 'TIENDAS';
             const opts = [...new Set([...ADIDAS_CANALES_OPCIONES, suggested])];
             return `
             <tr class="border-t hover:bg-amber-50/40">
