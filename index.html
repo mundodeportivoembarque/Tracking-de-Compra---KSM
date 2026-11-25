@@ -2203,8 +2203,10 @@ async function loadOcPreliminar(file) {
       const fFact = fdate(getRowVal(o, ['Fecha de factura']));
       const fIngEmb = fdate(getRowVal(o, ['Fecha de ingreso embarque', 'Fecha ingreso embarque', 'FECHA DE INGRESO EMBARQUE', 'FECHA INGRESO EMBARQUE', 'Fecha Ingreso', 'Fecha estimada ingreso', 'Fecha Arribo']));
       const refFinal = String(getRowVal(o, ['Referencia compra', 'CANAL'])).trim();
+      const poPrelim = String(getRowVal(o, ['Purchase order no. (35 char)', 'Purchase order no.', 'PO'])).trim();
+      const cIniPrelim = norm(getRowVal(o, ['Canal Inicial', 'CANAL INICIAL']) || (poPrelim && S.brand === 'Adidas' ? resolveCanalInicialFromPO(poPrelim) : resolverCanalInicial(refFinal, S.brand)));
       if (!cod || qty <= 0) continue;
-      const pool = mergePools(
+      const rawPrelimPool = mergePools(
         (temp && tal) ? seasonExactIndex.get(`${temp}|${cod}|${col}|${tal}`) : null,
         tal ? exactIndex.get(`${cod}|${col}|${tal}`) : null,
         (temp && tal) ? seasonSkuTalIndex.get(`${temp}|${cod}|${tal}`) : null,
@@ -2216,9 +2218,16 @@ async function loadOcPreliminar(file) {
         (temp && talM) ? seasonExactIndex.get(`${temp}|${cod}|${col}|${talM}`) : null,
         talM ? exactIndex.get(`${cod}|${col}|${talM}`) : null
       );
+      const pool = (S.brand === 'Adidas' && cIniPrelim)
+        ? rawPrelimPool.filter(r => norm(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Adidas')) === cIniPrelim)
+        : rawPrelimPool;
       if (!pool.length || !pool.some(r => r['Cantidad'] > 0)) {
         unmatched.push({ cod: getRowVal(o, ['Código', 'Codigo', 'SAP']), col: o['Color'], tal: o['Talla'], qty });
         continue;
+      }
+      if (refFinal) {
+        const refNorm = norm(refFinal);
+        pool.sort((a, b) => (norm(b['Referencia compra']) === refNorm ? 1 : 0) - (norm(a['Referencia compra']) === refNorm ? 1 : 0));
       }
       let rem = qty;
       for (let i = 0; i < pool.length && rem > 0; i++) {
@@ -5144,6 +5153,7 @@ async function processBrandBilling(file, ptsFile = null) {
           const rCan = norm(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand));
           const rCanUnif = norm(resolverCanalUnificado(r['Canal Inicial'] || r['Referencia compra']));
           if (rCan && rCan === targetCanalNorm) sc += 25;
+          else if (!isReebok) return -1; // En Adidas, el Canal Inicial deducido del Purchase order no. (35 char) es estricto: nunca cruzar TIENDAS con WEB ni viceversa
           else if (rCanUnif && rCanUnif === targetUnifNorm) sc += 12;
         } else if (isReebok) {
           // Proteger estrictamente Mayorista (10) y Tiendas (20) sobre Marathon (75) y Web (92):
