@@ -134,10 +134,21 @@ const DEFAULT_LOGOS = {
   Reebok: `<img src="data:image/png;base64,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" alt="Reebok" class="h-10 w-auto object-contain">`
 };
 /* ============ MAESTRO TALLAS SAP COMPARTIDO Y REGLAS DE CANALES ============ */
-function resolveCanalInicialFromPO(poStr) {
+const ADIDAS_CANALES_OPCIONES = [
+  'TIENDAS', 'MARATHON', 'WEB', 'MAYORISTA', 'OUTLET', 'TAF', 'EXPLORER',
+  'SNEAKERS', 'TELESHOP', 'BIG HEAD', 'EDCA', 'PROVEEDOR', 'PROVEEDOR MS',
+  'PROVEEDOR TAF', 'PROVEEDOR OUTLET', 'MARKETING', 'POP UP', 'SPOMA', 'WEB ADIDAS TIENDAS'
+];
+
+function resolveCanalInicialWithMeta(poStr) {
   const raw = String(poStr || '').trim();
-  if (!raw) return '';
+  if (!raw) return { canal: '', confident: false, reason: 'Sin Purchase Order' };
   const u = raw.toUpperCase();
+
+  // 1. Revisar si el usuario ya asignó y guardó manualmente este PO
+  if (S.poCanalOverrides && S.poCanalOverrides[u]) {
+    return { canal: S.poCanalOverrides[u], confident: true, reason: 'Asignado manualmente' };
+  }
 
   // Analizar únicamente lo que va después de la temporada (después del primer guion)
   const dashIdx = u.indexOf('-');
@@ -146,29 +157,40 @@ function resolveCanalInicialFromPO(poStr) {
     : u.replace(/^(FW|SS|S)\d{2}(Q\d)?\s*/, '').trim();
   const firstSeg = afterDash.split('-')[0].trim();
 
-  if (afterDash.includes('ECOM MD') || afterDash.includes('WEB ADIDAS TIENDAS')) return 'WEB ADIDAS TIENDAS';
+  // Regla explícita: Todo Purchase Order con "-EC EC-" o segmento "EC EC" pertenece a TIENDAS
+  if (firstSeg === 'EC EC' || u.includes('-EC EC-') || afterDash.startsWith('EC EC-') || afterDash.includes('-EC EC')) {
+    return { canal: 'TIENDAS', confident: true, reason: 'Regla -EC EC- → TIENDAS' };
+  }
 
-  if (/PROV[\s._-]*TAF/.test(afterDash)) return 'PROVEEDOR TAF';
-  if (/PROV[\s._-]*OUTLET/.test(afterDash) || (afterDash.includes('PROVEEDOREXTRA') && afterDash.includes('CLE'))) return 'PROVEEDOR OUTLET';
-  if (/PROV[\s._-]*MS/.test(afterDash) || afterDash.includes('PROVEEDOREXTRA')) return 'PROVEEDOR MS';
-  if (afterDash.includes('PROVEEDOR') || afterDash.includes('PROVMINI') || firstSeg.startsWith('CLE') || afterDash.includes('PEDIDO MARCA')) return 'PROVEEDOR';
+  if (afterDash.includes('ECOM MD') || afterDash.includes('WEB ADIDAS TIENDAS')) {
+    return { canal: 'WEB ADIDAS TIENDAS', confident: true, reason: 'Regla ECOM MD' };
+  }
 
-  if (firstSeg === 'BH' || afterDash.includes('BIG HEAD')) return 'BIG HEAD';
-  if (firstSeg === 'EDCA' || afterDash.includes('-EDCA-') || afterDash.startsWith('EDCA-')) return 'EDCA';
-  if (firstSeg === 'EXP' || firstSeg === 'EXPLORER' || firstSeg.startsWith('EXTRA_EXPLO') || afterDash.includes('EXPLORER')) return 'EXPLORER';
-  if (firstSeg === 'SNK' || firstSeg === 'EXCL_SNK' || firstSeg === 'EXCLU_SNKRS' || afterDash.includes('EXCL_SNK') || afterDash.includes('SNEAKER')) return 'SNEAKERS';
-  if (firstSeg === 'TSHOP' || firstSeg === 'TELESHOP' || afterDash.includes('TELESHOP')) return 'TELESHOP';
-  if (firstSeg === 'POPUP' || firstSeg === 'POP UP' || afterDash.includes('POPUP') || afterDash.includes('POP UP')) return 'POP UP';
-  if (firstSeg === 'SPOMA' || firstSeg.startsWith('SPOMAEVENTPACK') || afterDash.includes('-SPOMA')) return 'SPOMA';
-  if (firstSeg === 'TAF' || firstSeg.startsWith('TAF_') || afterDash.includes('CLIMACOOL TAF') || afterDash.includes('-TAF-')) return 'TAF';
-  if (firstSeg === 'MKT' || firstSeg.includes('15KQUITO') || firstSeg.includes('21KQUITO') || firstSeg.includes('15KQTUITO') || firstSeg.includes('MARATON15K') || afterDash.includes('-MKT-') || afterDash.includes('MKT TRENDS')) return 'MARKETING';
-  if (firstSeg === 'OUT' || firstSeg === 'OUTLET' || firstSeg.startsWith('EXTRA_OUTLETS') || afterDash.includes('OUTLET')) return 'OUTLET';
-  if (firstSeg === 'WEB' || firstSeg === 'EXCL_WEB' || firstSeg === 'EC EC' || firstSeg === 'MSWEB' || afterDash.includes('-WEB-') || afterDash.includes('EXCL_WEB')) return 'WEB';
-  if (firstSeg === 'MAYOR' || firstSeg === 'MYR' || firstSeg === 'MAYORISTA' || firstSeg.startsWith('MAYEVENTPACK') || firstSeg === 'MAY' || afterDash.includes('MAYOR')) return 'MAYORISTA';
-  if (firstSeg === 'TND' || firstSeg === 'TIENDAS' || firstSeg === 'TIEN' || firstSeg === 'TIEND' || firstSeg === 'OC QUIT' || firstSeg === 'RE_ORDER' || firstSeg === 'REORDER2' || firstSeg === 'FRA' || afterDash.includes('TIENDA') || afterDash.includes('-TND') || afterDash.includes('ECOM MUNDO') || afterDash.includes('MOQ')) return 'TIENDAS';
-  if (firstSeg === 'MS' || firstSeg.startsWith('MS') || afterDash.includes('MARATHON')) return 'MARATHON';
+  if (/PROV[\s._-]*TAF/.test(afterDash)) return { canal: 'PROVEEDOR TAF', confident: true, reason: 'Regla PROV TAF' };
+  if (/PROV[\s._-]*OUTLET/.test(afterDash) || (afterDash.includes('PROVEEDOREXTRA') && afterDash.includes('CLE'))) return { canal: 'PROVEEDOR OUTLET', confident: true, reason: 'Regla PROV OUTLET' };
+  if (/PROV[\s._-]*MS/.test(afterDash) || afterDash.includes('PROVEEDOREXTRA')) return { canal: 'PROVEEDOR MS', confident: true, reason: 'Regla PROV MS' };
+  if (afterDash.includes('PROVEEDOR') || afterDash.includes('PROVMINI') || firstSeg.startsWith('CLE') || afterDash.includes('PEDIDO MARCA')) return { canal: 'PROVEEDOR', confident: true, reason: 'Regla PROVEEDOR' };
 
-  return 'TIENDAS';
+  if (firstSeg === 'BH' || afterDash.includes('BIG HEAD')) return { canal: 'BIG HEAD', confident: true, reason: 'Regla BIG HEAD' };
+  if (firstSeg === 'EDCA' || afterDash.includes('-EDCA-') || afterDash.startsWith('EDCA-')) return { canal: 'EDCA', confident: true, reason: 'Regla EDCA' };
+  if (firstSeg === 'EXP' || firstSeg === 'EXPLORER' || firstSeg.startsWith('EXTRA_EXPLO') || afterDash.includes('EXPLORER')) return { canal: 'EXPLORER', confident: true, reason: 'Regla EXPLORER' };
+  if (firstSeg === 'SNK' || firstSeg === 'EXCL_SNK' || firstSeg === 'EXCLU_SNKRS' || afterDash.includes('EXCL_SNK') || afterDash.includes('SNEAKER')) return { canal: 'SNEAKERS', confident: true, reason: 'Regla SNEAKERS' };
+  if (firstSeg === 'TSHOP' || firstSeg === 'TELESHOP' || afterDash.includes('TELESHOP')) return { canal: 'TELESHOP', confident: true, reason: 'Regla TELESHOP' };
+  if (firstSeg === 'POPUP' || firstSeg === 'POP UP' || afterDash.includes('POPUP') || afterDash.includes('POP UP')) return { canal: 'POP UP', confident: true, reason: 'Regla POP UP' };
+  if (firstSeg === 'SPOMA' || firstSeg.startsWith('SPOMAEVENTPACK') || afterDash.includes('-SPOMA')) return { canal: 'SPOMA', confident: true, reason: 'Regla SPOMA' };
+  if (firstSeg === 'TAF' || firstSeg.startsWith('TAF_') || afterDash.includes('CLIMACOOL TAF') || afterDash.includes('-TAF-')) return { canal: 'TAF', confident: true, reason: 'Regla TAF' };
+  if (firstSeg === 'MKT' || firstSeg.includes('15KQUITO') || firstSeg.includes('21KQUITO') || firstSeg.includes('15KQTUITO') || firstSeg.includes('MARATON15K') || afterDash.includes('-MKT-') || afterDash.includes('MKT TRENDS')) return { canal: 'MARKETING', confident: true, reason: 'Regla MARKETING' };
+  if (firstSeg === 'OUT' || firstSeg === 'OUTLET' || firstSeg.startsWith('EXTRA_OUTLETS') || afterDash.includes('OUTLET')) return { canal: 'OUTLET', confident: true, reason: 'Regla OUTLET' };
+  if (firstSeg === 'WEB' || firstSeg === 'EXCL_WEB' || firstSeg === 'MSWEB' || afterDash.includes('-WEB-') || afterDash.includes('EXCL_WEB')) return { canal: 'WEB', confident: true, reason: 'Regla WEB' };
+  if (firstSeg === 'MAYOR' || firstSeg === 'MYR' || firstSeg === 'MAYORISTA' || firstSeg.startsWith('MAYEVENTPACK') || firstSeg === 'MAY' || afterDash.includes('MAYOR')) return { canal: 'MAYORISTA', confident: true, reason: 'Regla MAYORISTA' };
+  if (firstSeg === 'TND' || firstSeg === 'TIENDAS' || firstSeg === 'TIEN' || firstSeg === 'TIEND' || firstSeg === 'OC QUIT' || firstSeg === 'RE_ORDER' || firstSeg === 'REORDER2' || firstSeg === 'FRA' || afterDash.includes('TIENDA') || afterDash.includes('-TND') || afterDash.includes('ECOM MUNDO') || afterDash.includes('MOQ')) return { canal: 'TIENDAS', confident: true, reason: 'Regla TIENDAS' };
+  if (firstSeg === 'MS' || firstSeg.startsWith('MS') || afterDash.includes('MARATHON')) return { canal: 'MARATHON', confident: true, reason: 'Regla MARATHON' };
+
+  return { canal: 'TIENDAS', confident: false, reason: 'PO nuevo sin regla identificada' };
+}
+
+function resolveCanalInicialFromPO(poStr) {
+  return resolveCanalInicialWithMeta(poStr).canal;
 }
 
 function extractSeasonFromPO(poStr, fallbackSeason) {
@@ -357,6 +379,7 @@ const S = {
   templates: {},
   sizePairs: [],
   sapCatalog: {},
+  poCanalOverrides: {},
   billingHistory: { Adidas: [], Reebok: [] },
   reebokDropAlerts: [],
   depcoLpnHistory: [],
@@ -532,6 +555,7 @@ async function saveMeta() {
   t.objectStore('meta').put(S.templates, 'templates');
   t.objectStore('meta').put(S.sizePairs || [], 'sizePairs');
   t.objectStore('meta').put(S.sapCatalog || {}, 'sapCatalog');
+  t.objectStore('meta').put(S.poCanalOverrides || {}, 'poCanalOverrides');
   t.objectStore('meta').put(S.billingHistory || { Adidas: [], Reebok: [] }, 'billingHistory');
   t.objectStore('meta').put(S.reebokDropAlerts || [], 'reebokDropAlerts');
   t.objectStore('meta').put(S.depcoLpnHistory || [], 'depcoLpnHistory');
@@ -612,6 +636,7 @@ async function buildFullCloudBundleObject() {
     logos: S.logos,
     sizePairs: S.sizePairs || [],
     sapCatalog: S.sapCatalog || {},
+    poCanalOverrides: S.poCanalOverrides || {},
     billingHistory: S.billingHistory || { Adidas: [], Reebok: [] },
     reebokDropAlerts: S.reebokDropAlerts || [],
     depcoLpnHistory: S.depcoLpnHistory || [],
@@ -659,6 +684,9 @@ async function importOneDriveBundleFile(file) {
     if (Array.isArray(data.sizePairs)) S.sizePairs = data.sizePairs;
     if (data.sapCatalog && typeof data.sapCatalog === 'object') {
       S.sapCatalog = { ...S.sapCatalog, ...data.sapCatalog };
+    }
+    if (data.poCanalOverrides && typeof data.poCanalOverrides === 'object') {
+      S.poCanalOverrides = { ...S.poCanalOverrides, ...data.poCanalOverrides };
     }
     if (data.billingHistory && typeof data.billingHistory === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...data.billingHistory };
@@ -842,6 +870,7 @@ async function pushCloudConfig() {
     logos: S.logos,
     sizePairs: S.sizePairs,
     sapCatalog: S.sapCatalog,
+    poCanalOverrides: S.poCanalOverrides,
     billingHistory: S.billingHistory,
     reebokDropAlerts: S.reebokDropAlerts || [],
     depcoLpnHistory: S.depcoLpnHistory,
@@ -1006,6 +1035,9 @@ async function pullFromCloudFolder(onlyActiveSeason = false, silent = false) {
       if (Array.isArray(cfgData.sizePairs)) S.sizePairs = cfgData.sizePairs;
       if (cfgData.sapCatalog && typeof cfgData.sapCatalog === 'object') {
         S.sapCatalog = { ...S.sapCatalog, ...cfgData.sapCatalog };
+      }
+      if (cfgData.poCanalOverrides && typeof cfgData.poCanalOverrides === 'object') {
+        S.poCanalOverrides = { ...S.poCanalOverrides, ...cfgData.poCanalOverrides };
       }
       if (cfgData.billingHistory && typeof cfgData.billingHistory === 'object') {
         S.billingHistory = { Adidas: [], Reebok: [], ...cfgData.billingHistory };
@@ -2625,6 +2657,18 @@ async function loadOcFinalProducto(file) {
       [['Cancelar', 'c'], ['Actualizar líneas P24', 'ok', 1]]
     );
     icons();
+    if ($('btnEditAllPOsFromConfirm')) {
+      $('btnEditAllPOsFromConfirm').onclick = async () => {
+        $('modal').classList.add('hidden');
+        const edited = await promptReviewPOChannelsModal([...poStatsMap.values()], false);
+        if (edited && typeof edited === 'object') {
+          if (!S.poCanalOverrides) S.poCanalOverrides = {};
+          Object.assign(S.poCanalOverrides, edited);
+          await saveMeta();
+        }
+        await processBrandBilling(file, ptsFile);
+      };
+    }
     if (ch !== 'ok') return;
     busy('Guardando actualización en la base local…');
     await tick();
@@ -4851,6 +4895,113 @@ async function loadTiendasFinalDistribution(file) {
 }
 
 /* ============ MOTOR UNIFICADO DE FACTURACIÓN (ADIDAS Y REEBOK) ============ */
+async function promptReviewPOChannelsModal(poSummaryList, onlyUncertain = true) {
+  if (!poSummaryList || !poSummaryList.length) return true;
+  const items = onlyUncertain ? poSummaryList.filter(p => !p.confident) : poSummaryList;
+  if (!items.length) return true;
+
+  const m = $('modal');
+  const titleText = onlyUncertain
+    ? `Purchase Orders Nuevos sin Canal Claro (${items.length} PO${items.length > 1 ? 's' : ''})`
+    : `Revisar y Asignar Canales por Purchase Order (${items.length} PO${items.length > 1 ? 's' : ''})`;
+  const subtitleText = onlyUncertain
+    ? 'Se detectaron Purchase Orders cuyo prefijo no coincide con una regla conocida. Selecciona el <b>Canal Inicial</b> correcto para cada uno antes de cruzar contra el saldo 10A:'
+    : 'Verifica o ajusta manualmente el <b>Canal Inicial</b> de cada Purchase Order presente en el archivo de facturación:';
+
+  m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col p-6">
+    <div class="flex items-start justify-between gap-3 mb-2">
+      <div>
+        <h3 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+          <i data-lucide="help-circle" class="w-5 h-5 text-amber-600"></i> ${titleText}
+        </h3>
+        <p class="text-xs text-slate-600 mt-1">${subtitleText}</p>
+      </div>
+    </div>
+
+    <div class="border rounded-lg overflow-auto flex-1 my-3">
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="bg-slate-100 text-left text-slate-700 border-b">
+            <th class="px-3 py-2 font-semibold">Purchase Order no.</th>
+            <th class="px-3 py-2 font-semibold text-right">Líneas / Unid.</th>
+            <th class="px-3 py-2 font-semibold">Saldo en 10A (Referencia)</th>
+            <th class="px-3 py-2 font-semibold">Canal Inicial Asignado</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((p, idx) => {
+            const suggested = p.suggestedFrom10A || p.canal || 'TIENDAS';
+            const opts = [...new Set([...ADIDAS_CANALES_OPCIONES, suggested])];
+            return `
+            <tr class="border-t hover:bg-amber-50/40">
+              <td class="px-3 py-2 font-mono font-bold text-slate-900">
+                <div>${esc(p.po)}</div>
+                <div class="text-[10px] font-sans font-normal text-slate-500 mt-0.5">${esc(p.reason)} · Ej: ${esc(p.sampleSkus.join(', '))}</div>
+              </td>
+              <td class="px-3 py-2 text-right whitespace-nowrap">
+                <div class="font-bold text-slate-800">${fn(p.units)} unid.</div>
+                <div class="text-[10px] text-slate-500">${fn(p.lines)} filas</div>
+              </td>
+              <td class="px-3 py-2 text-[11px]">
+                ${p.avail10ABreakdown
+                  ? `<span class="inline-block bg-emerald-50 border border-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-medium">${esc(p.avail10ABreakdown)}</span>`
+                  : `<span class="text-slate-400 italic">Sin saldo 10A previo</span>`}
+              </td>
+              <td class="px-3 py-2">
+                <select class="po-canal-sel border-2 border-indigo-200 focus:border-indigo-600 rounded px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white w-48" data-po="${esc(p.po.toUpperCase())}">
+                  ${opts.map(c => `<option value="${esc(c)}" ${c === suggested ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+                </select>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none bg-slate-50 p-2.5 rounded-lg border">
+      <input type="checkbox" id="chkRememberPoCanals" class="w-4 h-4 accent-indigo-700" checked>
+      <span><b>Recordar estas asignaciones</b> automáticamente para futuras cargas de facturación</span>
+    </label>
+
+    <div class="flex justify-end gap-2 mt-4 pt-3 border-t">
+      <button type="button" id="btnCancelPoReview" class="btn">Cancelar</button>
+      <button type="button" id="btnConfirmPoReview" class="btn btn-p">Confirmar Canales y Continuar</button>
+    </div>
+  </div>`;
+  m.classList.remove('hidden');
+  icons();
+
+  return await new Promise(resolve => {
+    $('btnCancelPoReview').onclick = () => {
+      m.classList.add('hidden');
+      resolve(false);
+    };
+    $('btnConfirmPoReview').onclick = async () => {
+      const remember = $('chkRememberPoCanals') ? $('chkRememberPoCanals').checked : true;
+      const sessionOverrides = {};
+      m.querySelectorAll('.po-canal-sel').forEach(sel => {
+        const poKey = sel.dataset.po;
+        const chosen = sel.value;
+        if (poKey && chosen) {
+          sessionOverrides[poKey] = chosen;
+          if (remember) {
+            if (!S.poCanalOverrides) S.poCanalOverrides = {};
+            S.poCanalOverrides[poKey] = chosen;
+          }
+        }
+      });
+      if (remember && Object.keys(sessionOverrides).length) {
+        await saveMeta();
+        if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+          pushCloudConfig().catch(() => {});
+        }
+      }
+      m.classList.add('hidden');
+      resolve(sessionOverrides);
+    };
+  });
+}
+
 async function processBrandBilling(file, ptsFile = null) {
   const isReebok = String(S.brand).toUpperCase().includes('REEBOK');
   try {
@@ -4943,6 +5094,70 @@ async function processBrandBilling(file, ptsFile = null) {
       }
       for (const [cNorm, totDeliv] of rbkTotalDeliveredByCod.entries()) {
         if (totDeliv <= 0) rbkZeroCurveSkus.add(cNorm);
+      }
+    }
+
+    // 0. Pre-escaneo de Purchase Orders en Adidas para detectar POs nuevos sin canal claro y permitir asignación manual
+    const sessionPoOverrides = {};
+    const poStatsMap = new Map();
+    if (!isReebok) {
+      for (const o of raw) {
+        const poStr = String(getRowVal(o, ['Purchase order no. (35 char)', 'Purchase order no.', 'Purchase Order', 'PO']) ?? '').trim();
+        const matStr = String(getRowVal(o, ['Material', 'Código', 'Codigo', 'SAP']) ?? '').trim();
+        const qtyVal = parseNum(getRowVal(o, ['Delivery quantity', 'Delivery Quantity', 'Invoiced Quantity', 'Cantidad', 'QTY']));
+        if (!poStr || !matStr || qtyVal <= 0) continue;
+        const poU = poStr.toUpperCase();
+        if (!poStatsMap.has(poU)) {
+          const meta = resolveCanalInicialWithMeta(poStr);
+          poStatsMap.set(poU, {
+            po: poStr,
+            canal: meta.canal,
+            confident: meta.confident,
+            reason: meta.reason,
+            lines: 0,
+            units: 0,
+            sampleSkus: [],
+            skuCanals10A: new Map()
+          });
+        }
+        const stPo = poStatsMap.get(poU);
+        stPo.lines++;
+        stPo.units += qtyVal;
+        if (stPo.sampleSkus.length < 3 && !stPo.sampleSkus.includes(matStr)) {
+          stPo.sampleSkus.push(matStr);
+        }
+        const cNorm = norm(matStr);
+        (rows10AByCod.get(cNorm) || []).forEach(r10 => {
+          const c10 = String(r10['Canal Inicial'] || resolverCanalInicial(r10['Referencia compra'], 'Adidas') || '').trim();
+          if (c10) stPo.skuCanals10A.set(c10, (stPo.skuCanals10A.get(c10) || 0) + Number(r10['Cantidad'] || 0));
+        });
+      }
+
+      for (const stPo of poStatsMap.values()) {
+        if (stPo.skuCanals10A.size > 0) {
+          const sorted10A = [...stPo.skuCanals10A.entries()].sort((a, b) => b[1] - a[1]);
+          stPo.suggestedFrom10A = sorted10A[0][0];
+          stPo.avail10ABreakdown = sorted10A.slice(0, 3).map(([c, u]) => `${c} (${fn(u)}u)`).join(', ');
+        }
+      }
+
+      const uncertainPOs = [...poStatsMap.values()].filter(p => !p.confident);
+      if (uncertainPOs.length > 0) {
+        busy();
+        const overrideRes = await promptReviewPOChannelsModal(uncertainPOs, true);
+        if (overrideRes === false) return;
+        if (overrideRes && typeof overrideRes === 'object') {
+          Object.assign(sessionPoOverrides, overrideRes);
+          for (const [kPo, vCan] of Object.entries(overrideRes)) {
+            if (poStatsMap.has(kPo)) {
+              poStatsMap.get(kPo).canal = vCan;
+              poStatsMap.get(kPo).confident = true;
+              poStatsMap.get(kPo).reason = 'Asignado manualmente';
+            }
+          }
+        }
+        busy(`Procesando Detalle de Facturación ${S.brand}, PTs COMEX, Tallas SAP y Plantilla…`);
+        await tick();
       }
     }
 
@@ -5052,9 +5267,10 @@ async function processBrandBilling(file, ptsFile = null) {
       // - En Adidas: desde Purchase order no.
       // - En Reebok: se deja vacío aquí para traerlo directamente desde la Compra Inicial 10A cruzada (o si ya viene en columna CANAL)
       const explicitCanalCol = String(getRowVal(o, ['CANAL INICIAL', 'Canal Inicial', 'CANAL']) ?? '').trim();
+      const poOverrideVal = poRaw ? (sessionPoOverrides[poRaw.toUpperCase()] || (S.poCanalOverrides && S.poCanalOverrides[poRaw.toUpperCase()])) : '';
       const canalIniRaw = isReebok
         ? explicitCanalCol
-        : (explicitCanalCol || resolveCanalInicialFromPO(poRaw));
+        : (explicitCanalCol || poOverrideVal || resolveCanalInicialFromPO(poRaw));
       const compraExtraFlag = String(getRowVal(o, ['COMPRA EXTRA', 'DETALLE DE COMPRA']) ?? '').trim();
 
       // Enriquecer desde Plantilla de Presentación (Actividad, Grupo, Categoría, Género, Línea)
@@ -5577,6 +5793,12 @@ async function processBrandBilling(file, ptsFile = null) {
              <input type="date" id="inpBillFechaIng" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white">
            </div>
          </div>
+         ${(!isReebok && poStatsMap.size > 0) ? `
+         <div class="pt-0.5">
+           <button type="button" id="btnEditAllPOsFromConfirm" class="w-full btn justify-center !bg-amber-50/80 !text-amber-950 !border-amber-300 hover:!bg-amber-100 !text-xs">
+             <i data-lucide="list-checks" class="w-4 h-4 text-amber-700"></i> Revisar / Editar Canales por Purchase Order (${fn(poStatsMap.size)} PO${poStatsMap.size > 1 ? 's' : ''})
+           </button>
+         </div>` : ''}
          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
            <button type="button" id="btnPreviewBillingFromConfirm" class="btn justify-center !bg-indigo-50 !text-indigo-900 !border-indigo-300 hover:!bg-indigo-100 !text-xs">
              <i data-lucide="eye" class="w-4 h-4 text-indigo-700"></i> Vista Previa Completa (${fn(S.lastBillingPreview.headers.length)} cols)
@@ -9224,6 +9446,8 @@ $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value
     if (Array.isArray(savedSizePairs)) S.sizePairs = savedSizePairs;
     const savedSapCat = await rq(db.transaction('meta').objectStore('meta').get('sapCatalog'));
     if (savedSapCat && typeof savedSapCat === 'object') S.sapCatalog = savedSapCat;
+    const savedPoOverrides = await rq(db.transaction('meta').objectStore('meta').get('poCanalOverrides'));
+    if (savedPoOverrides && typeof savedPoOverrides === 'object') S.poCanalOverrides = savedPoOverrides;
     const savedBillingHist = await rq(db.transaction('meta').objectStore('meta').get('billingHistory'));
     if (savedBillingHist && typeof savedBillingHist === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...savedBillingHist };
