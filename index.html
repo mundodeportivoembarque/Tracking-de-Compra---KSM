@@ -134,19 +134,6 @@ const DEFAULT_LOGOS = {
   Reebok: `<img src="data:image/png;base64,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" alt="Reebok" class="h-10 w-auto object-contain">`
 };
 /* ============ MAESTRO TALLAS SAP COMPARTIDO Y REGLAS DE CANALES ============ */
-function resolverCanalUnificado(canalInicial) {
-  const c = String(canalInicial || '').trim().toUpperCase();
-  if (!c) return '';
-  if (c.includes('PROVEEDOR')) return 'PROVEEDOR';
-  if (['KAO', 'EDCA', 'MAYORISTA'].includes(c)) return 'MAYORISTA';
-  if (['TIENDAS', 'WEB ADIDAS TIENDAS', 'WEB REEBOK TIENDAS', 'WEB REEBOK MEDEPORT'].includes(c)) return 'TIENDAS';
-  if (['BIG HEAD', 'EXPLORER', 'TAF', 'MARATHON', 'SNEAKERS', 'TELESHOP', 'OUTLET', 'WEB'].includes(c)) return 'MARATHON';
-  if (c === 'MARKETING') return 'MARKETING';
-  if (c === 'POP UP') return 'POP UP';
-  if (c === 'SPOMA') return 'SPOMA';
-  return c;
-}
-
 function resolveCanalInicialFromPO(poStr) {
   const raw = String(poStr || '').trim();
   if (!raw) return '';
@@ -200,6 +187,54 @@ function sanitizeSapSize(v) {
   // Una TALLA SAP nunca lleva '#' (ej. '#5' o '5#' debe quedar limpia como '5')
   s = s.replace(/^#+|#+$/g, '').trim();
   return s;
+}
+
+function buildReverseTallaLookup() {
+  const pairs = Array.isArray(S.sizePairs) ? S.sizePairs : [];
+  const rev = new Map();
+  const add = (sapVal, tmVal) => {
+    const k = normTalla(sanitizeSapSize(sapVal)).toUpperCase();
+    const v = normTalla(tmVal).toUpperCase();
+    if (!k || !v) return;
+    if (!rev.has(k)) rev.set(k, []);
+    const arr = rev.get(k);
+    if (!arr.includes(v)) arr.push(v);
+  };
+  for (const [tm, ts] of pairs) {
+    add(ts, tm);
+    const tStr = String(tm || '').trim().toUpperCase();
+    if (/^-\d+$/.test(tStr)) add(ts, tStr.slice(1) + '-');
+    else if (/^\d+-$/.test(tStr)) add(ts, '-' + tStr.slice(0, -1));
+  }
+  return rev;
+}
+
+function expandSizeEquivSet(vals, fwdLookup, revLookup) {
+  const set = new Set();
+  const addToken = raw => {
+    if (raw === null || raw === undefined) return;
+    const s = String(raw).trim().toUpperCase().replace(',', '.');
+    if (!s) return;
+    const nt = normTalla(s);
+    if (nt) set.add(nt);
+    const clean = sanitizeSapSize(s);
+    if (clean) set.add(normTalla(clean));
+    if (/^-\d+$/.test(s)) {
+      set.add(s.slice(1) + '-');
+    } else if (/^\d+-$/.test(s)) {
+      set.add('-' + s.slice(0, -1));
+    }
+    if (fwdLookup) {
+      (fwdLookup.get(s) || []).forEach(x => { const nx = normTalla(x); if (nx) set.add(nx); });
+      if (/^-\d+$/.test(s)) (fwdLookup.get(s.slice(1) + '-') || []).forEach(x => { const nx = normTalla(x); if (nx) set.add(nx); });
+      if (/^\d+-$/.test(s)) (fwdLookup.get('-' + s.slice(0, -1)) || []).forEach(x => { const nx = normTalla(x); if (nx) set.add(nx); });
+    }
+    if (revLookup && nt) {
+      (revLookup.get(nt) || []).forEach(x => { const nx = normTalla(x); if (nx) set.add(nx); });
+    }
+  };
+  for (const v of vals) addToken(v);
+  return set;
 }
 
 function buildTallaSapLookup() {
@@ -2913,18 +2948,32 @@ function refreshBillingHistoryEnrichment(brand = S.brand) {
     const idColIdx = batch.headers.findIndex(h => h === oldIdHdr || norm(h).startsWith('idnewmaterial') || norm(h).startsWith('idmaterial'));
     if (idColIdx !== -1) batch.headers[idColIdx] = 'ID SAP';
 
-    const codIdx = isRbk ? 9 : 8;
-    const gridIdx = 10;
-    const talSapIdx = isRbk ? 20 : 16;
-    const idSapIdx = isRbk ? 21 : 17;
-    const marSapIdx = isRbk ? 22 : 18;
-    const eanSapIdx = isRbk ? 23 : 19;
-    const actIdx = isRbk ? 24 : 20;
-    const grpIdx = isRbk ? 25 : 21;
-    const catIdx = isRbk ? 27 : 23;
-    const genIdx = isRbk ? 28 : 24;
-    const tempIdx = isRbk ? 29 : 25;
-    const linIdx = isRbk ? 30 : 26;
+    const unifColIdx = batch.headers.findIndex(h => norm(h) === 'canalunificado');
+    if (unifColIdx !== -1) {
+      batch.headers.splice(unifColIdx, 1);
+      for (const r of batch.rows) {
+        if (Array.isArray(r.cells) && r.cells.length > unifColIdx) {
+          r.cells.splice(unifColIdx, 1);
+        }
+      }
+      if (typeof batch.codIdx === 'number' && batch.codIdx > unifColIdx) batch.codIdx--;
+      if (typeof batch.embIdx === 'number' && batch.embIdx > unifColIdx) batch.embIdx--;
+      if (typeof batch.factIdx === 'number' && batch.factIdx > unifColIdx) batch.factIdx--;
+      if (typeof batch.ptIdx === 'number' && batch.ptIdx > unifColIdx) batch.ptIdx--;
+    }
+
+    const codIdx = isRbk ? 8 : 7;
+    const gridIdx = isRbk ? 9 : 8;
+    const talSapIdx = isRbk ? 19 : 15;
+    const idSapIdx = isRbk ? 20 : 16;
+    const marSapIdx = isRbk ? 21 : 17;
+    const eanSapIdx = isRbk ? 22 : 18;
+    const actIdx = isRbk ? 23 : 19;
+    const grpIdx = isRbk ? 24 : 20;
+    const catIdx = isRbk ? 26 : 22;
+    const genIdx = isRbk ? 27 : 23;
+    const tempIdx = isRbk ? 28 : 24;
+    const linIdx = isRbk ? 29 : 25;
 
     for (const r of batch.rows) {
       if (!Array.isArray(r.cells)) continue;
@@ -3001,10 +3050,10 @@ function lookupSapEanFromCatalog(brand, codIntl, tallaSap) {
 function applySapCatalogToBillingHist(brand) {
   const hist = getBrandBillingHistory(brand);
   const isRbk = String(brand).toUpperCase().includes('REEBOK');
-  const codIdx = isRbk ? 9 : 8;
-  const talSapIdx = isRbk ? 20 : 16;
-  const marSapIdx = isRbk ? 22 : 18;
-  const eanSapIdx = isRbk ? 23 : 19;
+  const codIdx = isRbk ? 8 : 7;
+  const talSapIdx = isRbk ? 19 : 15;
+  const marSapIdx = isRbk ? 21 : 17;
+  const eanSapIdx = isRbk ? 22 : 18;
   let updatedLines = 0;
 
   for (const batch of hist) {
@@ -3036,7 +3085,7 @@ async function promptSapCatalogManager() {
   const keys = Object.keys(S.sapCatalog || {}).filter(k => k.startsWith(prefix));
   const allBillRows = getAllBrandBillingRows(S.brand);
   const isRbk = String(S.brand).toUpperCase().includes('REEBOK');
-  const marSapIdx = isRbk ? 22 : 18;
+  const marSapIdx = isRbk ? 21 : 17;
   const missingCount = allBillRows.filter(r => !String((r.cells && r.cells[marSapIdx]) || '').trim()).length;
 
   await modal(
@@ -3087,10 +3136,10 @@ document.addEventListener('click', e => {
 function exportMissingSapCodesExcel() {
   const allBillRows = getAllBrandBillingRows(S.brand);
   const isRbk = String(S.brand).toUpperCase().includes('REEBOK');
-  const codIdx = isRbk ? 9 : 8;
-  const talSapIdx = isRbk ? 20 : 16;
-  const marSapIdx = isRbk ? 22 : 18;
-  const descIdx = isRbk ? 25 : 21;
+  const codIdx = isRbk ? 8 : 7;
+  const talSapIdx = isRbk ? 19 : 15;
+  const marSapIdx = isRbk ? 21 : 17;
+  const descIdx = isRbk ? 24 : 20;
 
   const missingRows = allBillRows.filter(r => !String((r.cells && r.cells[marSapIdx]) || '').trim());
   const source = missingRows.length ? missingRows : allBillRows;
@@ -3837,6 +3886,7 @@ async function buildDepcoLpnOrder(billFile, ptsFile = null, embOverride = '') {
     if (!raw.length) throw new Error('El archivo de facturación Adidas está vacío.');
 
     const sizeLookup = buildTallaSapLookup();
+    const revSizeLookup = buildReverseTallaLookup();
     const { tplBySeason, globalTplItems } = getBrandTplCatalogMap('Adidas');
     const allAdidasRows = await getAllBrandRows('Adidas');
 
@@ -5004,7 +5054,6 @@ async function processBrandBilling(file, ptsFile = null) {
       const canalIniRaw = isReebok
         ? explicitCanalCol
         : (explicitCanalCol || resolveCanalInicialFromPO(poRaw));
-      const canalUnif = canalIniRaw ? resolverCanalUnificado(canalIniRaw) : '';
       const compraExtraFlag = String(getRowVal(o, ['COMPRA EXTRA', 'DETALLE DE COMPRA']) ?? '').trim();
 
       // Enriquecer desde Plantilla de Presentación (Actividad, Grupo, Categoría, Género, Línea)
@@ -5032,7 +5081,6 @@ async function processBrandBilling(file, ptsFile = null) {
           ptKey: ptRaw,
           poNumber: poRaw,
           canalInicial: canalIniRaw,
-          canalUnificado: canalUnif,
           material: materialRaw,
           codNorm,
           ean: String(getRowVal(o, ['EAN VERIFICADO', 'EAN', 'EAN/UPC']) ?? '').trim(),
@@ -5126,9 +5174,9 @@ async function processBrandBilling(file, ptsFile = null) {
       totalFileUnits += line.qty;
       const tempNorm = norm(line.temporada);
       const codNorm = line.codNorm;
-      const candTallasNorm = line.candidates.map(normTalla).filter(Boolean);
+      const lineSizeEquiv = expandSizeEquivSet([line.tallaSap, line.gridValue, ...line.candidates], sizeLookup, revSizeLookup);
       const targetCanalNorm = norm(line.canalInicial);
-      const targetUnifNorm = norm(line.canalUnificado);
+      const targetCanalResolvedNorm = norm(resolverCanalInicial(line.canalInicial, S.brand));
       const wantExtra = norm(line.compraExtra) === 'si' || norm(line.compraExtra) === 'compraextra' || norm(line.compraExtra) === 'x';
 
       const allSkuRows = [
@@ -5141,20 +5189,33 @@ async function processBrandBilling(file, ptsFile = null) {
         if (norm(r.season || r['Temporada']) === tempNorm) sc += 100;
         const rTal = normTalla(r['Talla']);
         const rTalM = normTalla(r['Talla marca']);
-        // También expandir las equivalencias SAP de r['Talla marca'] en la compra inicial (ej. OSFM/OSFW -> TU, KXXL -> XXL)
-        const rTalMAsSap = rTalM ? getTallaSapCandidates(r['Talla marca'], '', sizeLookup).map(normTalla) : [];
-        if (rTal && candTallasNorm.includes(rTal)) sc += 50;
-        else if (rTalM && candTallasNorm.includes(rTalM)) sc += 45;
-        else if (!rTal && rTalMAsSap.some(x => candTallasNorm.includes(x))) sc += 38;
-        else if (rTalMAsSap.some(x => candTallasNorm.includes(x))) sc += 32;
-        else return -1;
+        // ID consolidado de talla: cruza tanto Talla SAP como Talla marca (sin importar si Talla viene vacía o con guion -10 vs 10-)
+        const rowSizeEquiv = expandSizeEquivSet([r['Talla'], r['Talla marca']], sizeLookup, revSizeLookup);
+        let sizeMatched = false;
+        for (const tok of rowSizeEquiv) {
+          if (lineSizeEquiv.has(tok)) {
+            sizeMatched = true;
+            break;
+          }
+        }
+        if (!sizeMatched) return -1;
+        if (rTal && lineSizeEquiv.has(rTal)) sc += 50;
+        else if (rTalM && lineSizeEquiv.has(rTalM)) sc += 45;
+        else sc += 38;
 
         if (targetCanalNorm) {
-          const rCan = norm(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand));
-          const rCanUnif = norm(resolverCanalUnificado(r['Canal Inicial'] || r['Referencia compra']));
-          if (rCan && rCan === targetCanalNorm) sc += 25;
-          else if (!isReebok) return -1; // En Adidas, el Canal Inicial deducido del Purchase order no. (35 char) es estricto: nunca cruzar TIENDAS con WEB ni viceversa
-          else if (rCanUnif && rCanUnif === targetUnifNorm) sc += 12;
+          const rCanRaw = r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand);
+          const rCan = norm(rCanRaw);
+          const rCanResolved = norm(resolverCanalInicial(rCanRaw || r['Referencia compra'], S.brand));
+          if (rCan && rCan === targetCanalNorm) {
+            sc += 35;
+          } else if (rCanResolved && targetCanalResolvedNorm && rCanResolved === targetCanalResolvedNorm) {
+            sc += 25;
+          } else if (!rCan) {
+            sc += 5;
+          } else if (!isReebok) {
+            return -1;
+          }
         } else if (isReebok) {
           // Proteger estrictamente Mayorista (10) y Tiendas (20) sobre Marathon (75) y Web (92):
           // Al descontar lo facturado, se consume primero el bloque sacrificable (Web/Marathon/Outlet) dejando el saldo sobrante en Web/Marathon
@@ -5184,6 +5245,7 @@ async function processBrandBilling(file, ptsFile = null) {
           cod: line.material,
           grid: line.gridValue,
           sap: line.tallaSap,
+          canal: line.canalInicial,
           qty: line.qty
         });
         // Conservar la línea en la vista previa con su canal original (o vacío si no cruzó)
@@ -5196,13 +5258,11 @@ async function processBrandBilling(file, ptsFile = null) {
 
       const pushToCanalBucket = (canalIniStr, subQty, subDetalle) => {
         const cleanIni = String(canalIniStr || line.canalInicial || '').trim();
-        const cleanUnif = resolverCanalUnificado(cleanIni);
         const bKey = `${cleanIni}|||${subDetalle}`;
         if (!perLineCanalBuckets.has(bKey)) {
           perLineCanalBuckets.set(bKey, {
             ...line,
             canalInicial: cleanIni,
-            canalUnificado: cleanUnif,
             compraExtra: line.compraExtra || (subDetalle === 'COMPRA EXTRA' ? 'COMPRA EXTRA' : ''),
             reqQty: 0,
             qty: 0,
@@ -5290,6 +5350,7 @@ async function processBrandBilling(file, ptsFile = null) {
           cod: line.material,
           grid: line.gridValue,
           sap: line.tallaSap,
+          canal: line.canalInicial,
           qty: rem
         });
         disaggregatedLines.push({
@@ -5375,7 +5436,7 @@ async function processBrandBilling(file, ptsFile = null) {
       if (isReebok) {
         const headers = [
           'Status', 'Sold-to party', 'Sales Order 1', 'No FACTURA ', 'FECHA DE FACTURA', 'FACTURA ', 'Purchase No',
-          'CANAL INICIAL', 'CANAL UNIFICADO', 'NEW Material', 'Grid Value', 'Reques quantity',
+          'CANAL INICIAL', 'NEW Material', 'Grid Value', 'Reques quantity',
           'Final Delivery QTY TOTAL', 'Gross Price', 'Net Without Round', 'Net value (without Round)',
           'Net price Round', 'Net value Round (DN)', 'EAN VERIFICADO', 'UPC', 'TALLA SAP',
           'ID SAP', 'MAR SAP NUEVO', 'EAN SAP',
@@ -5384,8 +5445,8 @@ async function processBrandBilling(file, ptsFile = null) {
         return {
           brand: S.brand,
           headers,
-          codIdx: 9,
-          embIdx: 26,
+          codIdx: 8,
+          embIdx: 25,
           factIdx: 3,
           ptIdx: 2,
           rows: disaggregatedLines.map(r => ({
@@ -5394,7 +5455,7 @@ async function processBrandBilling(file, ptsFile = null) {
             ptKey: r.ptKey,
             cells: [
               r.status, r.soldToParty, r.ptKey, r.invoiceNumber, r.invoiceDate, r.invCodeRbk, r.poNumber,
-              r.canalInicial, r.canalUnificado, r.material, r.gridValue, r.reqQty,
+              r.canalInicial, r.material, r.gridValue, r.reqQty,
               r.qty, r.grossPrice, r.netWithoutRound, r.netValWithoutRound,
               r.netPrice, r.netValue, r.ean, r.upc, r.tallaSap,
               r.idConcat, (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.marSap || ''), (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.eanSap || ''),
@@ -5405,7 +5466,7 @@ async function processBrandBilling(file, ptsFile = null) {
       } else {
         const headers = [
           'Sold-to Name', 'Invoice Date', 'Sales Document Type', 'Invoice Number', 'Delivery',
-          'Purchase order no.', 'CANAL INICIAL', 'CANAL UNIFICADO', 'Material', 'EAN',
+          'Purchase order no.', 'CANAL INICIAL', 'Material', 'EAN',
           'Grid Value', 'Delivery Quantity', 'Net Price', 'Net value', 'Brand code',
           'Sales Document(ORDER NUMBER)', 'TALLA SAP', 'ID SAP',
           'MAR SAP NUEVO', 'EAN SAP', 'ACTIVIDAD', 'GRUPO', 'EMBARQUE',
@@ -5414,8 +5475,8 @@ async function processBrandBilling(file, ptsFile = null) {
         return {
           brand: S.brand,
           headers,
-          codIdx: 8,
-          embIdx: 22,
+          codIdx: 7,
+          embIdx: 21,
           factIdx: 3,
           ptIdx: 4,
           rows: disaggregatedLines.map(r => ({
@@ -5424,7 +5485,7 @@ async function processBrandBilling(file, ptsFile = null) {
             ptKey: r.ptKey,
             cells: [
               r.soldToName, r.invoiceDate, r.salesDocType, r.invoiceNumber, r.ptKey,
-              r.poNumber, r.canalInicial, r.canalUnificado, r.material, r.ean,
+              r.poNumber, r.canalInicial, r.material, r.ean,
               r.gridValue, r.qty, r.netPrice, r.netValue, r.brandCode,
               r.salesDocOrder, r.tallaSap, r.idConcat,
               (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.marSap || ''), (lookupSapEanFromCatalog(S.brand, r.material, r.tallaSap)?.eanSap || ''), r.actividad, r.grupo, r.embarque,
@@ -5462,7 +5523,7 @@ async function processBrandBilling(file, ptsFile = null) {
       ? `<div class="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1">
            <div><b>${fn(unmatched.length)} líneas</b> (${fn(unmatched.reduce((a, x) => a + x.qty, 0))} unid.) no encontraron saldo suficiente en 10A:</div>
            <div class="max-h-24 overflow-y-auto text-[11px] font-mono bg-white/70 p-1.5 rounded border border-amber-200">
-             ${unmatched.slice(0, 15).map(u => `${esc(u.temp)} · ${esc(u.cod)} · Grid:${esc(u.grid)}→SAP:${esc(u.sap)} · ${fn(u.qty)}u (PT:${esc(u.pt)})`).join('<br>')}
+             ${unmatched.slice(0, 15).map(u => `${esc(u.temp)} · ${esc(u.cod)} · Grid:${esc(u.grid)}→SAP:${esc(u.sap)}${u.canal ? ' · Canal:' + esc(u.canal) : ''} · ${fn(u.qty)}u (PT:${esc(u.pt)})`).join('<br>')}
              ${unmatched.length > 15 ? `<br>... y ${unmatched.length - 15} más` : ''}
            </div>
          </div>`
@@ -7516,8 +7577,8 @@ async function promptDeleteBillingBatch() {
   }
 
   const isRbk = String(S.brand).toUpperCase().includes('REEBOK');
-  const qtyIdx = isRbk ? 12 : 11;
-  const netValIdx = isRbk ? 17 : 13;
+  const qtyIdx = isRbk ? 11 : 10;
+  const netValIdx = isRbk ? 16 : 12;
 
   const listHtml = hist.map((b, idx) => {
     const uSum = (b.rows || []).reduce((a, r) => a + (Number(r.cells && r.cells[qtyIdx]) || 0), 0);
@@ -7695,12 +7756,12 @@ function vBilling() {
     embIdx = latestBatch.embIdx;
     factIdx = latestBatch.factIdx;
     ptIdx = latestBatch.ptIdx;
-    qtyIdx = isReebok ? 12 : 11;
-    netValIdx = isReebok ? 17 : 13;
-    tempIdx = isReebok ? 29 : 25;
+    qtyIdx = isReebok ? 11 : 10;
+    netValIdx = isReebok ? 16 : 12;
+    tempIdx = isReebok ? 28 : 24;
     canalIdx = isReebok ? 7 : 6;
-    marSapIdx = isReebok ? 22 : 18;
-    eanSapIdx = isReebok ? 23 : 19;
+    marSapIdx = isReebok ? 21 : 17;
+    eanSapIdx = isReebok ? 22 : 18;
     unifiedRows = refreshedRows;
   } else {
     isFallbackMode = true;
@@ -8068,22 +8129,15 @@ function getReebokDropPriorityScore(canalName) {
   const raw = String(canalName || '').trim().toUpperCase();
   if (!raw) return 50;
   const resolved = resolverCanalInicial(raw, 'Reebok');
-  const unif = resolverCanalUnificado(raw);
 
   // Mayor puntaje = MAYOR prioridad para DROPEAR (sacrificar primero)
   // Menor puntaje = MÁS PROTEGIDO (entregar completo; nunca quitarle unidades si hay WEB/MARATHON/OUTLET)
-  // Regla operativa:
-  // 1° Protegido: MAYORISTA (10)
-  // 2° Protegido: TIENDAS (20) - incluye Web Reebok Medeport / Tiendas; SIEMPRE protegido antes que MARATHON y WEB
-  // 3° Protegido: TAF (55)
-  // 4° Pool Unificado Producto (MARATHON + WEB): MARATHON (75) y WEB puro (92) -> WEB se sacrifica primero y se complementa con MARATHON
-  // 5° Máxima prioridad de drop: OUTLET (100)
   if (raw === 'OUTLET' || resolved === 'OUTLET') return 100;
-  if (raw === 'WEB' || raw === 'EXCLUSIVO WEB') return 92; // WEB puro (se sacrifica primero; Producto lo complementa con MARATHON)
+  if (raw === 'WEB' || raw === 'EXCLUSIVO WEB') return 92;
   if (['MARATHON', 'BIG HEAD', 'EXPLORER', 'SNEAKERS', 'TELESHOP', 'POP UP', 'SPOMA', 'MARKETING'].includes(resolved)) return 75;
   if (raw === 'TAF' || resolved === 'TAF') return 55;
-  if (resolved === 'TIENDAS' || unif === 'TIENDAS') return 20; // Protegido antes que MARATHON y WEB
-  if (unif === 'MAYORISTA' || ['MAYORISTA', 'KAO', 'EDCA'].includes(raw)) return 10; // Máxima protección
+  if (resolved === 'TIENDAS' || ['TIENDAS', 'WEB REEBOK TIENDAS', 'WEB REEBOK MEDEPORT'].includes(raw)) return 20;
+  if (['MAYORISTA', 'KAO', 'EDCA'].includes(raw) || ['MAYORISTA', 'KAO', 'EDCA'].includes(resolved)) return 10;
   return 50;
 }
 
@@ -8217,10 +8271,11 @@ async function promptReebokDropAssignmentModal(filterIds = null) {
         </thead>
         <tbody>
           ${items.map(it => {
+            const isMsGroup = c => ['MARATHON', 'BIG HEAD', 'EXPLORER', 'SNEAKERS', 'TELESHOP', 'OUTLET'].includes(resolverCanalInicial(c, 'Reebok'));
             const hasWeb = (it.initialChannels10A || []).some(x => norm(x.canal) === 'web');
-            const hasMs = (it.initialChannels10A || []).some(x => resolverCanalUnificado(x.canal) === 'MARATHON' && norm(x.canal) !== 'web');
+            const hasMs = (it.initialChannels10A || []).some(x => isMsGroup(x.canal) && norm(x.canal) !== 'web');
             const webMsSum = (it.initialChannels10A || [])
-              .filter(x => norm(x.canal) === 'web' || resolverCanalUnificado(x.canal) === 'MARATHON')
+              .filter(x => norm(x.canal) === 'web' || isMsGroup(x.canal))
               .reduce((a, x) => a + Number(x.qty || 0), 0);
             const poolHint = (hasWeb && hasMs)
               ? `<div class="px-2 py-1 bg-sky-50/90 text-[10px] text-sky-900 font-medium flex items-center justify-between border-t border-sky-200/80">
