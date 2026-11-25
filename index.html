@@ -500,13 +500,34 @@ function openDB() {
         d.createObjectStore('handles');
       }
     };
-    r.onsuccess = () => ok(r.result);
+    r.onsuccess = () => {
+      const d = r.result;
+      d.onversionchange = () => { try { d.close(); } catch(e) {} if (db === d) db = null; };
+      d.onclose = () => { if (db === d) db = null; };
+      db = d;
+      ok(d);
+    };
     r.onerror = () => ko(r.error);
   });
 }
+async function getDB() {
+  if (!db) return await openDB();
+  return db;
+}
+async function dbTx(storeNames, mode = 'readonly') {
+  let d = await getDB();
+  try {
+    return d.transaction(storeNames, mode);
+  } catch (e) {
+    // Si el navegador cerró la conexión IndexedDB en segundo plano (InvalidStateError), reabrir automáticamente
+    db = null;
+    d = await openDB();
+    return d.transaction(storeNames, mode);
+  }
+}
 async function dbAdd(rows, label) {
   for (let i = 0; i < rows.length; i += 10000) {
-    const t = db.transaction('rows', 'readwrite'), s = t.objectStore('rows');
+    const t = await dbTx('rows', 'readwrite'), s = t.objectStore('rows');
     rows.slice(i, i + 10000).forEach(r => s.add(r));
     await txDone(t);
     if (label && rows.length > 10000) {
@@ -517,25 +538,28 @@ async function dbAdd(rows, label) {
 }
 async function dbPut(rows) {
   for (let i = 0; i < rows.length; i += 10000) {
-    const t = db.transaction('rows', 'readwrite'), s = t.objectStore('rows');
+    const t = await dbTx('rows', 'readwrite'), s = t.objectStore('rows');
     rows.slice(i, i + 10000).forEach(r => s.put(r));
     await txDone(t);
   }
 }
 async function dbDeleteIds(ids) {
   for (let i = 0; i < ids.length; i += 10000) {
-    const t = db.transaction('rows', 'readwrite'), s = t.objectStore('rows');
+    const t = await dbTx('rows', 'readwrite'), s = t.objectStore('rows');
     ids.slice(i, i + 10000).forEach(id => s.delete(id));
     await txDone(t);
   }
 }
 async function dbDelSeason(key) {
-  const t = db.transaction('rows', 'readwrite'), s = t.objectStore('rows');
+  const t = await dbTx('rows', 'readwrite'), s = t.objectStore('rows');
   const ks = await rq(s.index('sb').getAllKeys(key));
   ks.forEach(k => s.delete(k));
   await txDone(t);
 }
-const dbSeason = key => rq(db.transaction('rows').objectStore('rows').index('sb').getAll(key));
+const dbSeason = async key => {
+  const t = await dbTx('rows', 'readonly');
+  return rq(t.objectStore('rows').index('sb').getAll(key));
+};
 async function getAllBrandRows(brand) {
   const seasonsList = S.seasons[brand] || [];
   const ordered = [S.season, ...seasonsList.filter(s => s !== S.season)];
@@ -548,7 +572,7 @@ async function getAllBrandRows(brand) {
   return all;
 }
 async function saveMeta() {
-  const t = db.transaction('meta', 'readwrite');
+  const t = await dbTx('meta', 'readwrite');
   t.objectStore('meta').put(S.seasons, 'seasons');
   t.objectStore('meta').put({ brand: S.brand, season: S.season }, 'active');
   t.objectStore('meta').put(S.logos, 'logos');
@@ -565,7 +589,7 @@ async function saveMeta() {
 async function refreshCounts() {
   for (const b in S.seasons) {
     for (const s of S.seasons[b]) {
-      S.counts[b + '|' + s] = await rq(db.transaction('rows').objectStore('rows').index('sb').count(b + '|' + s));
+      S.counts[b + '|' + s] = await rq((await dbTx('rows', 'readonly')).objectStore('rows').index('sb').count(b + '|' + s));
     }
   }
 }
@@ -788,7 +812,7 @@ async function saveCloudDirHandle(dirHandle, autoSync = true) {
   S.cloud.dirHandle = dirHandle;
   S.cloud.dirName = dirHandle ? dirHandle.name : '';
   S.cloud.autoSync = autoSync;
-  const t = db.transaction('handles', 'readwrite');
+  const t = await dbTx('handles', 'readwrite');
   if (dirHandle) {
     t.objectStore('handles').put({
       dirHandle,
@@ -805,7 +829,7 @@ async function saveCloudDirHandle(dirHandle, autoSync = true) {
 
 async function loadSavedCloudHandle() {
   try {
-    const rec = await rq(db.transaction('handles').objectStore('handles').get('cloudFolder'));
+    const rec = await rq((await dbTx('handles', 'readonly')).objectStore('handles').get('cloudFolder'));
     if (rec && rec.dirHandle) {
       S.cloud.dirHandle = rec.dirHandle;
       S.cloud.dirName = rec.dirHandle.name || 'Carpeta OneDrive';
@@ -9436,29 +9460,29 @@ $('fPresTemplate').onchange = e => { const f = e.target.files[0]; e.target.value
       navigator.storage.persist().catch(() => {});
     }
     db = await openDB();
-    const m = await rq(db.transaction('meta').objectStore('meta').get('seasons'));
+    const m = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('seasons'));
     if (m) S.seasons = m;
-    const savedLogos = await rq(db.transaction('meta').objectStore('meta').get('logos'));
+    const savedLogos = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('logos'));
     if (savedLogos) S.logos = savedLogos;
-    const savedTemplates = await rq(db.transaction('meta').objectStore('meta').get('templates'));
+    const savedTemplates = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('templates'));
     if (savedTemplates) S.templates = savedTemplates;
-    const savedSizePairs = await rq(db.transaction('meta').objectStore('meta').get('sizePairs'));
+    const savedSizePairs = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('sizePairs'));
     if (Array.isArray(savedSizePairs)) S.sizePairs = savedSizePairs;
-    const savedSapCat = await rq(db.transaction('meta').objectStore('meta').get('sapCatalog'));
+    const savedSapCat = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('sapCatalog'));
     if (savedSapCat && typeof savedSapCat === 'object') S.sapCatalog = savedSapCat;
-    const savedPoOverrides = await rq(db.transaction('meta').objectStore('meta').get('poCanalOverrides'));
+    const savedPoOverrides = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('poCanalOverrides'));
     if (savedPoOverrides && typeof savedPoOverrides === 'object') S.poCanalOverrides = savedPoOverrides;
-    const savedBillingHist = await rq(db.transaction('meta').objectStore('meta').get('billingHistory'));
+    const savedBillingHist = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('billingHistory'));
     if (savedBillingHist && typeof savedBillingHist === 'object') {
       S.billingHistory = { Adidas: [], Reebok: [], ...savedBillingHist };
     }
-    const savedRbkDrops = await rq(db.transaction('meta').objectStore('meta').get('reebokDropAlerts'));
+    const savedRbkDrops = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('reebokDropAlerts'));
     if (Array.isArray(savedRbkDrops)) S.reebokDropAlerts = savedRbkDrops;
-    const savedDepcoHist = await rq(db.transaction('meta').objectStore('meta').get('depcoLpnHistory'));
+    const savedDepcoHist = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('depcoLpnHistory'));
     if (Array.isArray(savedDepcoHist)) S.depcoLpnHistory = savedDepcoHist;
-    const savedTiendasHist = await rq(db.transaction('meta').objectStore('meta').get('tiendasConsolHistory'));
+    const savedTiendasHist = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('tiendasConsolHistory'));
     if (Array.isArray(savedTiendasHist)) S.tiendasConsolHistory = savedTiendasHist;
-    const act = await rq(db.transaction('meta').objectStore('meta').get('active'));
+    const act = await rq((await dbTx('meta', 'readonly')).objectStore('meta').get('active'));
     if (act && act.brand && act.season) {
       S.brand = act.brand;
       S.season = act.season;
