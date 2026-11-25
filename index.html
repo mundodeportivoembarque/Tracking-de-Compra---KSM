@@ -2680,20 +2680,7 @@ async function loadOcFinalProducto(file) {
        ${unmatched.length ? `<p class="text-amber-600 mt-2 text-xs"><b>${unmatched.length} filas</b> no encontraron saldo P24 pendiente en las temporadas de ${S.brand}.</p>` : ''}`,
       [['Cancelar', 'c'], ['Actualizar líneas P24', 'ok', 1]]
     );
-    icons();
-    if ($('btnEditAllPOsFromConfirm')) {
-      $('btnEditAllPOsFromConfirm').onclick = async () => {
-        $('modal').classList.add('hidden');
-        const edited = await promptReviewPOChannelsModal([...poStatsMap.values()], false);
-        if (edited && typeof edited === 'object') {
-          if (!S.poCanalOverrides) S.poCanalOverrides = {};
-          Object.assign(S.poCanalOverrides, edited);
-          await saveMeta();
-        }
-        await processBrandBilling(file, ptsFile);
-      };
-    }
-    if (ch !== 'ok') return;
+
     busy('Guardando actualización en la base local…');
     await tick();
     await dbPut([...changed]);
@@ -5430,13 +5417,24 @@ async function processBrandBilling(file, ptsFile = null) {
         if (norm(r.season || r['Temporada']) === tempNorm) sc += 100;
         const rTal = normTalla(r['Talla']);
         const rTalM = normTalla(r['Talla marca']);
-        // ID consolidado de talla: cruza tanto Talla SAP como Talla marca (sin importar si Talla viene vacía o con guion -10 vs 10-)
+        // ID consolidado de talla: cruza tanto Talla SAP como Talla marca (incluyendo equivalencias por medio punto y maestro SAP)
         const rowSizeEquiv = expandSizeEquivSet([r['Talla'], r['Talla marca']], sizeLookup, revSizeLookup);
         let sizeMatched = false;
         for (const tok of rowSizeEquiv) {
           if (lineSizeEquiv.has(tok)) {
             sizeMatched = true;
             break;
+          }
+        }
+        // Respaldo adicional si uno usa NS/TU o si la talla limpia coincide directamente
+        if (!sizeMatched) {
+          const rCleanTal = normTalla(sanitizeSapSize(r['Talla']));
+          const rCleanTm = normTalla(sanitizeSapSize(r['Talla marca']));
+          const lCleanTal = normTalla(sanitizeSapSize(line.tallaSap));
+          const lCleanGrid = normTalla(sanitizeSapSize(line.gridValue));
+          if ((lCleanTal && (lCleanTal === rCleanTal || lCleanTal === rCleanTm)) ||
+              (lCleanGrid && (lCleanGrid === rCleanTal || lCleanGrid === rCleanTm))) {
+            sizeMatched = true;
           }
         }
         if (!sizeMatched) return -1;
@@ -5479,6 +5477,21 @@ async function processBrandBilling(file, ptsFile = null) {
         .map(x => x.r);
 
       if (!pool.length) {
+        let diagReason = 'SKU sin saldo 10A';
+        if (allSkuRows.length > 0) {
+          const hasSizeInAnyCanal = allSkuRows.some(r => {
+            const rEq = expandSizeEquivSet([r['Talla'], r['Talla marca']], sizeLookup, revSizeLookup);
+            for (const tk of rEq) if (lineSizeEquiv.has(tk)) return true;
+            return false;
+          });
+          if (!hasSizeInAnyCanal) {
+            const availSizes = [...new Set(allSkuRows.map(r => r['Talla'] || r['Talla marca']).filter(Boolean))].join('/');
+            diagReason = `Talla no en 10A (10A tiene: ${availSizes || '?'})`;
+          } else {
+            const availCanals = [...new Set(allSkuRows.map(r => r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand) || '?'))].join('/');
+            diagReason = `Saldo en otro canal (10A tiene: ${availCanals})`;
+          }
+        }
         unmatched.push({
           inv: line.invoiceNumber,
           pt: line.ptKey,
@@ -5487,7 +5500,8 @@ async function processBrandBilling(file, ptsFile = null) {
           grid: line.gridValue,
           sap: line.tallaSap,
           canal: line.canalInicial,
-          qty: line.qty
+          qty: line.qty,
+          diag: diagReason
         });
         // Conservar la línea en la vista previa con su canal original (o vacío si no cruzó)
         disaggregatedLines.push({ ...line });
@@ -5764,7 +5778,7 @@ async function processBrandBilling(file, ptsFile = null) {
       ? `<div class="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1">
            <div><b>${fn(unmatched.length)} líneas</b> (${fn(unmatched.reduce((a, x) => a + x.qty, 0))} unid.) no encontraron saldo suficiente en 10A:</div>
            <div class="max-h-24 overflow-y-auto text-[11px] font-mono bg-white/70 p-1.5 rounded border border-amber-200">
-             ${unmatched.slice(0, 15).map(u => `${esc(u.temp)} · ${esc(u.cod)} · Grid:${esc(u.grid)}→SAP:${esc(u.sap)}${u.canal ? ' · Canal:' + esc(u.canal) : ''} · ${fn(u.qty)}u (PT:${esc(u.pt)})`).join('<br>')}
+             ${unmatched.slice(0, 20).map(u => `${esc(u.temp)} · ${esc(u.cod)} · Grid:${esc(u.grid)}→SAP:${esc(u.sap)}${u.canal ? ' · Canal:' + esc(u.canal) : ''} · ${fn(u.qty)}u [${esc(u.diag || '')}]`).join('<br>')}
              ${unmatched.length > 15 ? `<br>... y ${unmatched.length - 15} más` : ''}
            </div>
          </div>`
@@ -5795,45 +5809,86 @@ async function processBrandBilling(file, ptsFile = null) {
              </div>`
           : '');
 
-    const ch = await modal(
-      `Confirmar Detalle de Facturación ${S.brand} (10A → P24)`,
-      `<div class="space-y-3 text-slate-700">
-         <p>Se procesaron <b>${fn(fileInvoices.size)} factura(s)</b> (${fn(disaggregatedLines.length)} filas desagregadas por canal · <b>${fn(totalFileUnits)} unid.</b> entregadas).</p>
-         <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs space-y-1.5">
-           <div>✓ <b>Unidades a descontar de 10A a P24:</b> <span class="text-sm font-bold">${fn(matchedUnits)} unid.</span></div>
-           <div>${breakdown || '<span class="text-slate-500">Sin unidades cruzadas en 10A</span>'}</div>
-         </div>
-         ${rbkDropAlertHtml}
-         ${ptsSummaryHtml}
-         ${dupWarningHtml}
-         ${unmatchedHtml}
-         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-           <div>
-             <label class="block text-xs font-semibold text-slate-700 mb-1">Embarque (Solo PTs cruzados)</label>
-             <input type="text" id="inpBillEmb" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white font-semibold" placeholder="Ej. PANAMA 70" value="${esc(defaultPtsEmb)}">
-           </div>
-           <div>
-             <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de ingreso embarque</label>
-             <input type="date" id="inpBillFechaIng" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white">
-           </div>
-         </div>
-         ${(!isReebok && poStatsMap.size > 0) ? `
-         <div class="pt-0.5">
+    const editPoBtnHtml = (!isReebok && poStatsMap.size > 0)
+      ? `<div class="pt-0.5">
            <button type="button" id="btnEditAllPOsFromConfirm" class="w-full btn justify-center !bg-amber-50/80 !text-amber-950 !border-amber-300 hover:!bg-amber-100 !text-xs">
              <i data-lucide="list-checks" class="w-4 h-4 text-amber-700"></i> Revisar / Editar Canales por Purchase Order (${fn(poStatsMap.size)} PO${poStatsMap.size > 1 ? 's' : ''})
            </button>
-         </div>` : ''}
-         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-           <button type="button" id="btnPreviewBillingFromConfirm" class="btn justify-center !bg-indigo-50 !text-indigo-900 !border-indigo-300 hover:!bg-indigo-100 !text-xs">
-             <i data-lucide="eye" class="w-4 h-4 text-indigo-700"></i> Vista Previa Completa (${fn(S.lastBillingPreview.headers.length)} cols)
-           </button>
-           <button type="button" id="btnDownloadBillingFromConfirm" class="btn justify-center !bg-slate-50 hover:!bg-slate-100 !text-slate-800 !text-xs">
-             <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i> Descargar Excel Maestro
-           </button>
-         </div>
-       </div>`,
-      [['Cancelar', 'c'], ['Aplicar descuento 10A → P24', 'ok', 1]]
-    );
+         </div>`
+      : '';
+
+    const ch = await new Promise(resolve => {
+      const m = $('modal');
+      m.innerHTML = `<div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+        <h3 class="text-lg font-semibold mb-3">Confirmar Detalle de Facturación ${esc(S.brand)} (10A → P24)</h3>
+        <div class="text-sm space-y-3 text-slate-700">
+          <p>Se procesaron <b>${fn(fileInvoices.size)} factura(s)</b> (${fn(disaggregatedLines.length)} filas desagregadas por canal · <b>${fn(totalFileUnits)} unid.</b> entregadas).</p>
+          <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs space-y-1.5">
+            <div>✓ <b>Unidades a descontar de 10A a P24:</b> <span class="text-sm font-bold">${fn(matchedUnits)} unid.</span></div>
+            <div>${breakdown || '<span class="text-slate-500">Sin unidades cruzadas en 10A</span>'}</div>
+          </div>
+          ${rbkDropAlertHtml}
+          ${ptsSummaryHtml}
+          ${dupWarningHtml}
+          ${unmatchedHtml}
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Embarque (Solo PTs cruzados)</label>
+              <input type="text" id="inpBillEmb" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white font-semibold" placeholder="Ej. PANAMA 70" value="${esc(defaultPtsEmb)}">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Fecha de ingreso embarque</label>
+              <input type="date" id="inpBillFechaIng" class="border rounded px-2.5 py-1.5 text-sm w-full bg-white">
+            </div>
+          </div>
+          ${editPoBtnHtml}
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <button type="button" id="btnPreviewBillingFromConfirm" class="btn justify-center !bg-indigo-50 !text-indigo-900 !border-indigo-300 hover:!bg-indigo-100 !text-xs">
+              <i data-lucide="eye" class="w-4 h-4 text-indigo-700"></i> Vista Previa Completa (${fn(S.lastBillingPreview.headers.length)} cols)
+            </button>
+            <button type="button" id="btnDownloadBillingFromConfirm" class="btn justify-center !bg-slate-50 hover:!bg-slate-100 !text-slate-800 !text-xs">
+              <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-700"></i> Descargar Excel Maestro
+            </button>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5">
+          <button type="button" id="btnCancelBillConfirm" class="btn">Cancelar</button>
+          <button type="button" id="btnApplyBillConfirm" class="btn btn-p">Aplicar descuento 10A → P24</button>
+        </div>
+      </div>`;
+      m.classList.remove('hidden');
+      icons();
+
+      const btnEditPo = $('btnEditAllPOsFromConfirm');
+      if (btnEditPo) {
+        btnEditPo.onclick = ev => {
+          ev.stopPropagation();
+          resolve('edit_po');
+        };
+      }
+      $('btnCancelBillConfirm').onclick = ev => {
+        ev.stopPropagation();
+        m.classList.add('hidden');
+        resolve('c');
+      };
+      $('btnApplyBillConfirm').onclick = ev => {
+        ev.stopPropagation();
+        m.classList.add('hidden');
+        resolve('ok');
+      };
+    });
+
+    if (ch === 'edit_po') {
+      const edited = await promptReviewPOChannelsModal([...poStatsMap.values()], false);
+      if (edited && typeof edited === 'object') {
+        if (!S.poCanalOverrides) S.poCanalOverrides = {};
+        Object.assign(S.poCanalOverrides, edited);
+        await saveMeta();
+      }
+      await processBrandBilling(file, ptsFile);
+      return;
+    }
+    if (ch !== 'ok') return;
     icons();
     if (ch !== 'ok') return;
 
