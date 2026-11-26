@@ -5704,8 +5704,7 @@ async function processBrandBilling(file, ptsFile = null) {
       }
     }
 
-    // 2. Ejecutar simulación de descuento contra 10A DESAGREGANDO UNA FILA POR CADA CANAL INICIAL
-    // Así nunca se juntan canales con "/" en una sola celda: cada canal queda en su propia fila con sus unidades exactas.
+    // 2. Motor Consolidado de Cruce 10A -> P24 en 2 PASES (Prioridad Embarque + Referencia/PO + Consolidación por Talla/Temporada)
     const changed = new Set();
     const added = [];
     const appliedP24Rows = [];
@@ -5715,13 +5714,41 @@ async function processBrandBilling(file, ptsFile = null) {
     const perSeasonUnits = {};
     const unmatched = [];
 
-    for (const line of consolidatedLines) {
+    // Registrar snapshot inicial por SKU+Talla de 10A para diagnósticos precisos si algún saldo no alcanza
+    const init10ATotalBySkuSize = new Map();
+    for (const [cNorm, rList] of rows10AByCod.entries()) {
+      for (const r10 of rList) {
+        if (st(r10) !== 'o') continue;
+        const eqs = expandSizeEquivSet([r10['Talla'], r10['Talla marca']], sizeLookup, revSizeLookup);
+        for (const tk of eqs) {
+          const k = `${cNorm}|${tk}`;
+          init10ATotalBySkuSize.set(k, (init10ATotalBySkuSize.get(k) || 0) + Number(r10['Cantidad'] || 0));
+        }
+      }
+    }
+
+    // Ordenar líneas facturadas priorizando:
+    // 1) Líneas con embarque confirmado (!isForwarder, ej. PANAMA 074) antes que FORWARDER
+    // 2) Líneas con Referencia compra / ECOM / PO específico antes que genéricas
+    const orderedLines = [...consolidatedLines].sort((a, b) => {
+      const shipA = a.isForwarder ? 1 : 0;
+      const shipB = b.isForwarder ? 1 : 0;
+      if (shipA !== shipB) return shipA - shipB;
+      const specA = (a.poNumber ? 2 : 0) + (a.canalInicial ? 1 : 0);
+      const specB = (b.poNumber ? 2 : 0) + (b.canalInicial ? 1 : 0);
+      return specB - specA;
+    });
+
+    // Estado por línea durante el cruce de 2 pases
+    const lineWorkList = orderedLines.map(line => {
       totalFileUnits += line.qty;
       const tempNorm = norm(line.temporada);
       const codNorm = line.codNorm;
       const lineSizeEquiv = expandSizeEquivSet([line.tallaSap, line.gridValue, ...line.candidates], sizeLookup, revSizeLookup);
       const targetCanalNorm = norm(line.canalInicial);
       const targetCanalResolvedNorm = norm(resolverCanalInicial(line.canalInicial, S.brand));
+      const poUpper = String(line.poNumber || '').trim().toUpperCase();
+      const isEcomPo = poUpper.includes('ECOM') || poUpper.includes('WEB ADIDAS') || targetCanalNorm.includes('ecom') || targetCanalNorm.includes('webadidas');
       const wantExtra = norm(line.compraExtra) === 'si' || norm(line.compraExtra) === 'compraextra' || norm(line.compraExtra) === 'x';
 
       const allSkuRows = [
@@ -5729,178 +5756,91 @@ async function processBrandBilling(file, ptsFile = null) {
         ...(rows10AByCod.get(codNorm) || [])
       ].filter((v, idx, arr) => arr.indexOf(v) === idx && st(v) === 'o' && Number(v['Cantidad'] || 0) > 0);
 
-      const scoreRow = r => {
-        let sc = 0;
-        if (norm(r.season || r['Temporada']) === tempNorm) sc += 100;
-        const rTal = normTalla(r['Talla']);
-        const rTalM = normTalla(r['Talla marca']);
-        // ID consolidado de talla: cruza tanto Talla SAP como Talla marca (incluyendo equivalencias por medio punto y maestro SAP)
-        const rowSizeEquiv = expandSizeEquivSet([r['Talla'], r['Talla marca']], sizeLookup, revSizeLookup);
-        let sizeMatched = false;
-        for (const tok of rowSizeEquiv) {
-          if (lineSizeEquiv.has(tok)) {
-            sizeMatched = true;
-            break;
-          }
-        }
-        // Respaldo adicional si uno usa NS/TU o si la talla limpia coincide directamente
-        if (!sizeMatched) {
-          const rCleanTal = normTalla(sanitizeSapSize(r['Talla']));
-          const rCleanTm = normTalla(sanitizeSapSize(r['Talla marca']));
-          const lCleanTal = normTalla(sanitizeSapSize(line.tallaSap));
-          const lCleanGrid = normTalla(sanitizeSapSize(line.gridValue));
-          if ((lCleanTal && (lCleanTal === rCleanTal || lCleanTal === rCleanTm)) ||
-              (lCleanGrid && (lCleanGrid === rCleanTal || lCleanGrid === rCleanTm))) {
-            sizeMatched = true;
-          }
-        }
-        if (!sizeMatched) return -1;
-        if (rTal && lineSizeEquiv.has(rTal)) sc += 50;
-        else if (rTalM && lineSizeEquiv.has(rTalM)) sc += 45;
-        else sc += 38;
-
-        const isFullSkuExactMatch = !isReebok && exactFullSkuBillingSet.has(codNorm);
-        if (targetCanalNorm) {
-          const rCanRaw = r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand);
-          const rCan = norm(rCanRaw);
-          const rCanResolved = norm(resolverCanalInicial(rCanRaw || r['Referencia compra'], S.brand));
-          if (rCan && rCan === targetCanalNorm) {
-            sc += 35;
-          } else if (rCanResolved && targetCanalResolvedNorm && rCanResolved === targetCanalResolvedNorm) {
-            sc += 25;
-          } else if (!rCan) {
-            sc += 5;
-          } else if (isFullSkuExactMatch) {
-            // Todo el código y sus tallas/cantidades coinciden exactamente con la Compra Inicial:
-            // rige el Canal Inicial del Detalle de Facturación.
-            sc += 15;
-          } else if (!isReebok) {
-            return -1;
-          }
-        } else if (isReebok) {
-          // Proteger estrictamente Mayorista (10) y Tiendas (20) sobre Marathon (75) y Web (92):
-          // Al descontar lo facturado, se consume primero el bloque sacrificable (Web/Marathon/Outlet) dejando el saldo sobrante en Web/Marathon
-          // y manteniendo intactas las unidades de Tiendas y Mayorista.
-          const cRaw = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || '').trim();
-          const dropPrio = getReebokDropPriorityScore(cRaw);
-          sc += dropPrio; // +100 Outlet, +92 Web, +75 Marathon, +55 TAF, +20 Tiendas, +10 Mayorista
-          if (Math.abs(Number(r['Cantidad']) - line.qty) < 0.001) sc += 8;
-        }
-
-        const isExtraRow = norm(r['Detalle compra']) === 'compraextra';
-        if (wantExtra === isExtraRow) sc += 5;
-        return sc;
+      return {
+        line,
+        tempNorm,
+        codNorm,
+        lineSizeEquiv,
+        targetCanalNorm,
+        targetCanalResolvedNorm,
+        poUpper,
+        isEcomPo,
+        wantExtra,
+        allSkuRows,
+        rem: line.qty,
+        canalBuckets: new Map(),
+        isCrossChannelUsed: false
       };
+    });
 
-      const pool = allSkuRows
-        .map(r => ({ r, sc: scoreRow(r) }))
-        .filter(x => x.sc >= 0)
-        .sort((a, b) => b.sc - a.sc)
-        .map(x => x.r);
-
-      if (!pool.length) {
-        let diagReason = 'SKU sin saldo 10A';
-        if (allSkuRows.length > 0) {
-          const hasSizeInAnyCanal = allSkuRows.some(r => {
-            const rEq = expandSizeEquivSet([r['Talla'], r['Talla marca']], sizeLookup, revSizeLookup);
-            for (const tk of rEq) if (lineSizeEquiv.has(tk)) return true;
-            return false;
-          });
-          if (!hasSizeInAnyCanal) {
-            const availSizes = [...new Set(allSkuRows.map(r => r['Talla'] || r['Talla marca']).filter(Boolean))].join('/');
-            diagReason = `Talla no en 10A (10A tiene: ${availSizes || '?'})`;
-          } else {
-            const availCanals = [...new Set(allSkuRows.map(r => r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand) || '?'))].join('/');
-            diagReason = `Saldo en otro canal (10A tiene: ${availCanals})`;
-          }
-        }
-        if (!isReebok && line.poNumber && poStatsMap.has(line.poNumber.toUpperCase())) {
-          const pInfo = poStatsMap.get(line.poNumber.toUpperCase());
-          pInfo.hasUnmatched = true;
-          pInfo.unmatchedUnits += line.qty;
-        }
-        unmatched.push({
-          inv: line.invoiceNumber,
-          pt: line.ptKey,
-          temp: line.temporada,
-          cod: line.material,
-          grid: line.gridValue,
-          sap: line.tallaSap,
-          canal: line.canalInicial,
-          qty: line.qty,
-          diag: diagReason
+    const addBucketQty = (lw, canalIniStr, subQty, subDetalle) => {
+      const cleanIni = String(canalIniStr || lw.line.canalInicial || '').trim();
+      const bKey = `${cleanIni}|||${subDetalle}`;
+      if (!lw.canalBuckets.has(bKey)) {
+        lw.canalBuckets.set(bKey, {
+          ...lw.line,
+          canalInicial: cleanIni,
+          compraExtra: lw.line.compraExtra || (subDetalle === 'COMPRA EXTRA' ? 'COMPRA EXTRA' : ''),
+          reqQty: 0,
+          qty: 0,
+          netValue: 0,
+          netValWithoutRound: 0
         });
-        // Conservar la línea en la vista previa con su canal original (o vacío si no cruzó)
-        disaggregatedLines.push({ ...line });
-        continue;
       }
+      const b = lw.canalBuckets.get(bKey);
+      const propReq = lw.line.qty > 0 ? Math.round((lw.line.reqQty * (subQty / lw.line.qty)) * 100) / 100 : subQty;
+      b.reqQty = Math.round((b.reqQty + propReq) * 100) / 100;
+      b.qty += subQty;
+      b.netValue = Math.round((b.netPrice * b.qty) * 10000) / 10000;
+      b.netValWithoutRound = Math.round((b.netWithoutRound * b.qty) * 10000) / 10000;
+    };
 
-      let rem = line.qty;
-      const perLineCanalBuckets = new Map(); // canalInicial -> subLine object
-
-      const pushToCanalBucket = (canalIniStr, subQty, subDetalle) => {
-        const cleanIni = String(canalIniStr || line.canalInicial || '').trim();
-        const bKey = `${cleanIni}|||${subDetalle}`;
-        if (!perLineCanalBuckets.has(bKey)) {
-          perLineCanalBuckets.set(bKey, {
-            ...line,
-            canalInicial: cleanIni,
-            compraExtra: line.compraExtra || (subDetalle === 'COMPRA EXTRA' ? 'COMPRA EXTRA' : ''),
-            reqQty: 0,
-            qty: 0,
-            netValue: 0,
-            netValWithoutRound: 0
-          });
-        }
-        const b = perLineCanalBuckets.get(bKey);
-        const propReq = line.qty > 0 ? Math.round((line.reqQty * (subQty / line.qty)) * 100) / 100 : subQty;
-        b.reqQty = Math.round((b.reqQty + propReq) * 100) / 100;
-        b.qty += subQty;
-        b.netValue = Math.round((b.netPrice * b.qty) * 10000) / 10000;
-        b.netValWithoutRound = Math.round((b.netWithoutRound * b.qty) * 10000) / 10000;
-      };
-
-      for (let i = 0; i < pool.length && rem > 0; i++) {
-        const baseRow = pool[i];
-        if (Number(baseRow['Cantidad'] || 0) <= 0 || st(baseRow) !== 'o') continue;
+    const consumeFromPool = (lw, poolRows, allowCrossChannel = false) => {
+      for (let i = 0; i < poolRows.length && lw.rem > 0; i++) {
+        const baseRow = poolRows[i];
+        const avail = Number(baseRow['Cantidad'] || 0);
+        if (avail <= 0 || st(baseRow) !== 'o') continue;
         const rowSeason = baseRow.season || S.season;
-        const take = Math.min(Number(baseRow['Cantidad']), rem);
+        const take = Math.min(avail, lw.rem);
 
-        const isFullSkuExact = !isReebok && exactFullSkuBillingSet.has(codNorm) && Boolean(line.canalInicial);
+        const isFullSkuExact = !isReebok && exactFullSkuBillingSet.has(lw.codNorm) && Boolean(lw.line.canalInicial);
         const rowCanalIni = isFullSkuExact
-          ? String(line.canalInicial).trim()
-          : String(baseRow['Canal Inicial'] || resolverCanalInicial(baseRow['Referencia compra'], S.brand) || line.canalInicial || '').trim();
+          ? String(lw.line.canalInicial).trim()
+          : String(baseRow['Canal Inicial'] || resolverCanalInicial(baseRow['Referencia compra'], S.brand) || lw.line.canalInicial || '').trim();
         const rowDetalle = String(baseRow['Detalle compra'] || '').trim();
 
         const applyBillingFields = targetRow => {
           targetRow['Etapa'] = EP;
-          if (line.invoiceNumber) targetRow['Factura'] = line.invoiceNumber;
-          if (line.ptKey) targetRow['Delivery'] = line.ptKey;
-          if (line.invoiceDate) targetRow['Fecha de factura'] = line.invoiceDate;
-          if (!isReebok && line.poNumber && !targetRow['Purchase order no. (35 char)']) {
-            targetRow['Purchase order no. (35 char)'] = line.poNumber;
+          if (lw.line.invoiceNumber) targetRow['Factura'] = lw.line.invoiceNumber;
+          if (lw.line.ptKey) targetRow['Delivery'] = lw.line.ptKey;
+          if (lw.line.invoiceDate) targetRow['Fecha de factura'] = lw.line.invoiceDate;
+          if (!isReebok && lw.line.poNumber && !targetRow['Purchase order no. (35 char)']) {
+            targetRow['Purchase order no. (35 char)'] = lw.line.poNumber;
           }
-          targetRow['EMBARQUE'] = line.embarque;
-          if (line.tallaSap) targetRow['Talla'] = line.tallaSap;
-          if (line.gridValue) targetRow['Talla marca'] = line.gridValue;
+          targetRow['EMBARQUE'] = lw.line.embarque;
+          if (lw.line.tallaSap) targetRow['Talla'] = lw.line.tallaSap;
+          if (lw.line.gridValue) targetRow['Talla marca'] = lw.line.gridValue;
           if (isFullSkuExact) {
             targetRow['Canal Inicial'] = rowCanalIni;
           } else if (!targetRow['Canal Inicial']) {
             targetRow['Canal Inicial'] = rowCanalIni;
           }
-          if (line.actividad) targetRow['Actividad'] = line.actividad;
-          if (line.grupo) targetRow['Grupo'] = line.grupo;
-          if (line.categoria) targetRow['Categoría'] = line.categoria;
-          if (line.genero) targetRow['Género'] = line.genero;
-          if (line.linea) targetRow['Línea'] = line.linea;
-          if (line.descripcion && !targetRow['Descripción']) targetRow['Descripción'] = line.descripcion;
-          if (line.netPrice > 0) targetRow['FOB'] = line.netPrice;
+          if (lw.line.actividad) targetRow['Actividad'] = lw.line.actividad;
+          if (lw.line.grupo) targetRow['Grupo'] = lw.line.grupo;
+          if (lw.line.categoria) targetRow['Categoría'] = lw.line.categoria;
+          if (lw.line.genero) targetRow['Género'] = lw.line.genero;
+          if (lw.line.linea) targetRow['Línea'] = lw.line.linea;
+          if (lw.line.descripcion && !targetRow['Descripción']) targetRow['Descripción'] = lw.line.descripcion;
+          if (lw.line.netPrice > 0) targetRow['FOB'] = lw.line.netPrice;
           targetRow['Valor Neto'] = calcValorNeto(targetRow);
-          appliedP24Rows.push({ row: targetRow, isForwarder: line.isForwarder });
+          if (allowCrossChannel && !targetRow['OBS']) {
+            targetRow['OBS'] = `CRUCE CANAL 10A (${rowCanalIni || 'SIN CANAL'})`;
+          }
+          appliedP24Rows.push({ row: targetRow, isForwarder: lw.line.isForwarder });
         };
 
-        if (Number(baseRow['Cantidad']) <= rem) {
-          rem -= take;
+        if (avail <= lw.rem) {
+          lw.rem = Math.round((lw.rem - take) * 10000) / 10000;
           matchedUnits += take;
           perSeasonUnits[rowSeason] = (perSeasonUnits[rowSeason] || 0) + take;
           applyBillingFields(baseRow);
@@ -5911,25 +5851,132 @@ async function processBrandBilling(file, ptsFile = null) {
           facturada['Cantidad'] = take;
           applyBillingFields(facturada);
 
-          baseRow['Cantidad'] = Number(baseRow['Cantidad']) - take;
+          baseRow['Cantidad'] = Math.round((avail - take) * 10000) / 10000;
           baseRow['Valor Neto'] = calcValorNeto(baseRow);
 
           matchedUnits += take;
           perSeasonUnits[rowSeason] = (perSeasonUnits[rowSeason] || 0) + take;
-          rem = 0;
+          lw.rem = 0;
           changed.add(baseRow);
           added.push(facturada);
         }
 
-        pushToCanalBucket(rowCanalIni, take, rowDetalle);
+        addBucketQty(lw, rowCanalIni, take, rowDetalle);
       }
+    };
 
-      // Agregar una fila independiente por cada canal inicial encontrado en esa talla
-      for (const subLine of perLineCanalBuckets.values()) {
+    const matchSizeInRow = (lw, r) => {
+      const rTal = normTalla(r['Talla']);
+      const rTalM = normTalla(r['Talla marca']);
+      const rowSizeEquiv = expandSizeEquivSet([r['Talla'], r['Talla marca']], sizeLookup, revSizeLookup);
+      for (const tok of rowSizeEquiv) {
+        if (lw.lineSizeEquiv.has(tok)) return { matched: true, rTal, rTalM };
+      }
+      const rCleanTal = normTalla(sanitizeSapSize(r['Talla']));
+      const rCleanTm = normTalla(sanitizeSapSize(r['Talla marca']));
+      const lCleanTal = normTalla(sanitizeSapSize(lw.line.tallaSap));
+      const lCleanGrid = normTalla(sanitizeSapSize(lw.line.gridValue));
+      if ((lCleanTal && (lCleanTal === rCleanTal || lCleanTal === rCleanTm)) ||
+          (lCleanGrid && (lCleanGrid === rCleanTal || lCleanGrid === rCleanTm))) {
+        return { matched: true, rTal, rTalM };
+      }
+      return { matched: false, rTal, rTalM };
+    };
+
+    // --- PASE 1: Cruce estricto por Temporada + Código + Talla + Canal / Referencia / PO ---
+    for (const lw of lineWorkList) {
+      const scorePass1 = r => {
+        let sc = 0;
+        if (norm(r.season || r['Temporada']) === lw.tempNorm) sc += 100;
+        const sz = matchSizeInRow(lw, r);
+        if (!sz.matched) return -1;
+        if (sz.rTal && lw.lineSizeEquiv.has(sz.rTal)) sc += 50;
+        else if (sz.rTalM && lw.lineSizeEquiv.has(sz.rTalM)) sc += 45;
+        else sc += 38;
+
+        const rRefUpper = String(r['Referencia compra'] || '').trim().toUpperCase();
+        const rPoUpper = String(r['Purchase order no. (35 char)'] || '').trim().toUpperCase();
+        if (lw.poUpper && rPoUpper && lw.poUpper === rPoUpper) sc += 80;
+        if (lw.isEcomPo && (rRefUpper.includes('WEB ADIDAS') || rRefUpper.includes('ECOM'))) sc += 65;
+
+        const isFullSkuExactMatch = !isReebok && exactFullSkuBillingSet.has(lw.codNorm);
+        if (lw.targetCanalNorm) {
+          const rCanRaw = r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand);
+          const rCan = norm(rCanRaw);
+          const rCanResolved = norm(resolverCanalInicial(rCanRaw || r['Referencia compra'], S.brand));
+          if (rCan && rCan === lw.targetCanalNorm) {
+            sc += 35;
+          } else if (rCanResolved && lw.targetCanalResolvedNorm && rCanResolved === lw.targetCanalResolvedNorm) {
+            sc += 25;
+          } else if (!rCan) {
+            sc += 5;
+          } else if (isFullSkuExactMatch) {
+            sc += 15;
+          } else if (!isReebok) {
+            return -1;
+          }
+        } else if (isReebok) {
+          const cRaw = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], 'Reebok') || '').trim();
+          const dropPrio = getReebokDropPriorityScore(cRaw);
+          sc += dropPrio;
+          if (Math.abs(Number(r['Cantidad']) - lw.line.qty) < 0.001) sc += 8;
+        }
+
+        const isExtraRow = norm(r['Detalle compra']) === 'compraextra';
+        if (lw.wantExtra === isExtraRow) sc += 5;
+        return sc;
+      };
+
+      const pool1 = lw.allSkuRows
+        .filter(r => st(r) === 'o' && Number(r['Cantidad'] || 0) > 0)
+        .map(r => ({ r, sc: scorePass1(r) }))
+        .filter(x => x.sc >= 0)
+        .sort((a, b) => b.sc - a.sc)
+        .map(x => x.r);
+
+      if (pool1.length) {
+        consumeFromPool(lw, pool1, false);
+      }
+    }
+
+    // --- PASE 2: Consolidación inteligente por Temporada + Código + Talla para saldos restantes en 10A ---
+    if (!isReebok) {
+      for (const lw of lineWorkList) {
+        if (lw.rem <= 0) continue;
+        const pool2 = lw.allSkuRows
+          .filter(r => st(r) === 'o' && Number(r['Cantidad'] || 0) > 0 && matchSizeInRow(lw, r).matched)
+          .sort((a, b) => {
+            const sa = (norm(a.season || a['Temporada']) === lw.tempNorm ? 100 : 0) + Number(a['Cantidad'] || 0);
+            const sb = (norm(b.season || b['Temporada']) === lw.tempNorm ? 100 : 0) + Number(b['Cantidad'] || 0);
+            return sb - sa;
+          });
+        if (pool2.length) {
+          lw.isCrossChannelUsed = true;
+          consumeFromPool(lw, pool2, true);
+        }
+      }
+    }
+
+    // --- Consolidar resultados finales y reportar únicamente faltantes reales ---
+    for (const lw of lineWorkList) {
+      const { line, rem, canalBuckets, allSkuRows, lineSizeEquiv } = lw;
+      for (const subLine of canalBuckets.values()) {
         disaggregatedLines.push(subLine);
       }
 
       if (rem > 0) {
+        const hasAnySkuRow = allSkuRows.length > 0;
+        const hasSizeInAnyRow = allSkuRows.some(r => matchSizeInRow(lw, r).matched);
+        let diagReason = 'Sin saldo restante en 10A';
+        if (!hasAnySkuRow) {
+          diagReason = 'SKU sin compra 10A cargada';
+        } else if (!hasSizeInAnyRow) {
+          const availSizes = [...new Set(allSkuRows.map(r => r['Talla'] || r['Talla marca']).filter(Boolean))].join('/');
+          diagReason = `Talla no en 10A (10A tiene: ${availSizes || '?'})`;
+        } else {
+          diagReason = `Saldo 10A agotado por líneas previas (faltan ${fn(rem)}u)`;
+        }
+
         if (!isReebok && line.poNumber && poStatsMap.has(line.poNumber.toUpperCase())) {
           const pInfo = poStatsMap.get(line.poNumber.toUpperCase());
           pInfo.hasUnmatched = true;
@@ -5944,7 +5991,7 @@ async function processBrandBilling(file, ptsFile = null) {
           sap: line.tallaSap,
           canal: line.canalInicial,
           qty: rem,
-          diag: 'Saldo parcial insuficiente en 10A'
+          diag: diagReason
         });
         disaggregatedLines.push({
           ...line,
