@@ -107,6 +107,7 @@
 </aside>
 <main id="main" class="flex-1 min-w-0 flex flex-col"></main>
 <input type="file" id="fBuyInit" accept=".xlsx,.xls,.csv" class="hidden">
+<input type="file" id="fBuyInitAppend" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fBuyExtra" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fOcPrelim" accept=".xlsx,.xls,.csv" class="hidden">
 <input type="file" id="fOcFinal" accept=".xlsx,.xls,.csv" class="hidden">
@@ -507,6 +508,20 @@ function fdate(v) {
   }
   return s;
 }
+function addOneMonthDate(dateStr) {
+  const s = fdate(dateStr);
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return '';
+  let y = parseInt(m[1], 10);
+  let mo = parseInt(m[2], 10);
+  let d = parseInt(m[3], 10);
+  mo += 1;
+  if (mo > 12) { mo = 1; y += 1; }
+  const maxDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  if (d > maxDay) d = maxDay;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
 function getQuincena(fechaStr) {
   const s = String(fechaStr || '').trim();
   if (!s) return '';
@@ -675,6 +690,13 @@ async function reload() {
       const gNorm = normalizarGrupo(r['Grupo']);
       if (gNorm && r['Grupo'] !== gNorm) {
         r['Grupo'] = gNorm;
+        dirty = true;
+      }
+    }
+    if (r['Fecha de entrega']) {
+      const fvPlus1 = addOneMonthDate(r['Fecha de entrega']);
+      if (fvPlus1 && r['Fecha de venta'] !== fvPlus1) {
+        r['Fecha de venta'] = fvPlus1;
         dirty = true;
       }
     }
@@ -1458,7 +1480,9 @@ function applyTemplateToRow(r, tplCatalog) {
   if (item.genero && r['Género'] !== item.genero) { r['Género'] = item.genero; changed = true; }
   if (item.color && (!r['Color'] || norm(r['Color']) === 'faltacolor')) { r['Color'] = item.color; changed = true; }
   if (item.fEntrega && r['Fecha de entrega'] !== item.fEntrega) { r['Fecha de entrega'] = item.fEntrega; changed = true; }
-  if (item.fVenta && r['Fecha de venta'] !== item.fVenta) { r['Fecha de venta'] = item.fVenta; changed = true; }
+  const autoFVenta = r['Fecha de entrega'] ? addOneMonthDate(r['Fecha de entrega']) : '';
+  const targetFVenta = autoFVenta || item.fVenta || '';
+  if (targetFVenta && r['Fecha de venta'] !== targetFVenta) { r['Fecha de venta'] = targetFVenta; changed = true; }
 
   if (item.fob > 0 && Math.abs((Number(r['FOB']) || 0) - item.fob) > 0.0001) {
     r['FOB'] = item.fob;
@@ -1823,17 +1847,32 @@ async function parseExcelFile(file, tipoCompra) {
     if (found) headerMap[mCol] = found;
   });
 
-  if (!headerMap['Purchase order no. (35 char)']) {
-    const poFallback = fileHeaders.find(h => ['purchaseorderno35char', 'purchaseorderno', 'purchaseorder', 'po', 'ordencompra'].includes(norm(h)));
-    if (poFallback) headerMap['Purchase order no. (35 char)'] = poFallback;
+  const colAliases = {
+    'Purchase order no. (35 char)': ['purchaseorderno35char', 'purchaseorderno', 'purchaseorder', 'po', 'ordencompra'],
+    'Temporada': ['temporada', 'q', 'season', 'campana'],
+    'Canal Inicial': ['canalinicial', 'canal', 'channel'],
+    'Referencia compra': ['referenciacompra', 'refernciacompra', 'refcompra', 'tienda', 'centro'],
+    'Código': ['codigo', 'article', 'material', 'newmaterial', 'sku', 'cod'],
+    'Cantidad': ['cantidad', 'qty', 'unidades', 'deliveryquantity'],
+    'Talla marca': ['tallamarca', 'size', 'gridvalue', 'itemsize', 'talla'],
+    'Fecha de entrega': ['fechadeentrega', 'fechaentrega', 'requireddateddmmyyyy', 'requireddate', 'deliverydate'],
+    'Fecha de venta': ['fechadeventa', 'fechaventa', 'mesdeventa', 'mesventa'],
+    'FOB': ['fob', 'costofob', 'preciofob', 'fobunitario', 'valorfob', 'netprice']
+  };
+  for (const [targetCol, aliases] of Object.entries(colAliases)) {
+    if (!headerMap[targetCol]) {
+      const foundAlias = fileHeaders.find(h => aliases.includes(norm(h)));
+      if (foundAlias) headerMap[targetCol] = foundAlias;
+    }
   }
-  if (!headerMap['FOB']) {
-    const fobFallback = fileHeaders.find(h => ['fob', 'costofob', 'preciofob', 'fobunitario', 'valorfob'].includes(norm(h)));
-    if (fobFallback) headerMap['FOB'] = fobFallback;
+  // Si el archivo solo trajo "Talla" (Size) y no "Talla marca", usar esa misma columna como Talla marca para convertirla a Talla SAP
+  if (!headerMap['Talla marca'] && headerMap['Talla']) {
+    headerMap['Talla marca'] = headerMap['Talla'];
+    delete headerMap['Talla'];
   }
   
   if (!headerMap['Código'] || !headerMap['Cantidad']) {
-    throw new Error('El archivo debe incluir obligatoriamente las columnas "Código" y "Cantidad".');
+    throw new Error('El archivo debe incluir obligatoriamente las columnas "Código" (o "Article") y "Cantidad" (o "Qty").');
   }
   
   const rows = [];
@@ -1871,10 +1910,18 @@ async function parseExcelFile(file, tipoCompra) {
     if (!r['PVP Final']) r['PVP Final'] = 0;
     if (!r['P4 Final']) r['P4 Final'] = 0;
     if (!r['PMY Final']) r['PMY Final'] = 0;
-    if (!r['Talla'] && r['Talla marca'] && Array.isArray(S.sizePairs) && S.sizePairs.length) {
-      const tmLookup = buildTallaSapLookup();
-      const mapped = getTallaSapCandidates(r['Talla marca'], '', tmLookup);
-      if (mapped.length) r['Talla'] = mapped[0];
+    if (!r['Marca']) r['Marca'] = S.brand.toUpperCase();
+    if (!r['Talla'] && r['Talla marca']) {
+      if (Array.isArray(S.sizePairs) && S.sizePairs.length) {
+        const tmLookup = buildTallaSapLookup();
+        r['Talla'] = resolveTallaSapFromGrid(r['Talla marca'], '', tmLookup, [], {
+          brand: S.brand,
+          material: r['Código'],
+          grupo: r['Grupo']
+        });
+      } else {
+        r['Talla'] = sanitizeSapSize(r['Talla marca']);
+      }
     }
     if (!r['Etapa']) {
       const hasEmb = Boolean(String(r['EMBARQUE'] || '').trim());
@@ -1887,6 +1934,10 @@ async function parseExcelFile(file, tipoCompra) {
       applyTemplateToRow(r, tplCatalog);
     }
     if (r['Grupo']) r['Grupo'] = normalizarGrupo(r['Grupo']);
+    if (r['Fecha de entrega']) {
+      const plusOneM = addOneMonthDate(r['Fecha de entrega']);
+      if (plusOneM) r['Fecha de venta'] = plusOneM;
+    }
     r['Valor Neto'] = calcValorNeto(r);
     r.sb = sbKey();
     r.brand = S.brand;
@@ -1927,6 +1978,55 @@ async function loadBuyInitial(file) {
   } catch(e) {
     busy();
     modal('Error al cargar compra inicial', esc(e.message || e));
+  }
+}
+/* ============ 1B. ANEXAR A COMPRA INICIAL (COMPRA CANAL SIN BORRAR) ============ */
+async function loadBuyInitialAppend(file) {
+  try {
+    busy('Leyendo nuevos POs para anexar a compra inicial…');
+    await tick();
+    const rows = await parseExcelFile(file, 'COMPRA CANAL');
+    const tplCatalog = S.templates[sbKey()];
+    rows.forEach(r => {
+      r['Detalle compra'] = 'COMPRA CANAL';
+      if (!r['Etapa']) r['Etapa'] = E10;
+      if (tplCatalog) applyTemplateToRow(r, tplCatalog);
+      r['Valor Neto'] = calcValorNeto(r);
+    });
+    const addFob = rows.reduce((a, r) => a + (r['Valor Neto'] || 0), 0);
+    const uniquePOs = [...new Set(rows.map(r => r['Purchase order no. (35 char)']).filter(Boolean))];
+    const existingPOs = new Set(S.rows.map(r => String(r['Purchase order no. (35 char)'] || '').trim().toUpperCase()).filter(Boolean));
+    const repeatedPOs = uniquePOs.filter(po => existingPOs.has(po.toUpperCase()));
+
+    busy();
+    const dupWarnHtml = repeatedPOs.length
+      ? `<div class="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs mt-2">
+           <b>⚠️ Aviso de POs ya existentes:</b> ${repeatedPOs.length} PO(s) de este archivo ya tienen filas cargadas en ${S.season} (ej. <code>${esc(repeatedPOs.slice(0, 3).join(', '))}</code>). Verifica que solo estés subiendo los POs faltantes para no duplicarlos.
+         </div>`
+      : '';
+
+    const c = await modal(
+      'Anexar a Compra Inicial (COMPRA CANAL)',
+      `Se sumarán <b>${fn(rows.length)} filas nuevas</b> (<b>${fn(rows.reduce((a, r) => a + (Number(r['Cantidad']) || 0), 0))} unid.</b> · Valor Neto: <b>${fmoney(addFob)}</b>) como <b>COMPRA CANAL</b> a <b>${S.brand} ${S.season}</b>.<br><br>
+      Tus registros previos (incluidos los que ya estén facturados en P24, FORWARDER, DEPCO o DROP) permanecerán intactos.
+      ${dupWarnHtml}`,
+      [['Cancelar', 'c'], ['Anexar a Compra Inicial', 'ok', 1]]
+    );
+    if (c !== 'ok') return;
+
+    busy('Anexando filas a Compra Inicial…');
+    await tick();
+    await dbAdd(rows, 'Guardando');
+    await saveMeta();
+    await reload();
+    busy();
+    if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+      pushCloudBuySeason(S.brand, S.season, true);
+    }
+    modal('Compra Inicial Actualizada', `Se anexaron con éxito <b>${fn(rows.length)} filas</b> como <b>COMPRA CANAL</b> en <b>${S.brand} ${S.season}</b> (Valor Neto anexado: <b>${fmoney(addFob)}</b>).`);
+  } catch(e) {
+    busy();
+    modal('Error al anexar a compra inicial', esc(e.message || e));
   }
 }
 /* ============ 2. CARGA COMPRA EXTRA ============ */
@@ -6492,6 +6592,13 @@ function renderMain() {
                   <div class="text-[11px] text-slate-500">Carga base COMPRA CANAL en 10A</div>
                 </div>
               </button>
+              <button type="button" class="dd-item" onclick="$('ddCompras').classList.add('hidden'); $('fBuyInitAppend').click()">
+                <i data-lucide="folder-plus" class="w-4 h-4 text-sky-700 shrink-0 mt-0.5"></i>
+                <div>
+                  <div class="font-semibold text-slate-900">Anexar a compra inicial</div>
+                  <div class="text-[11px] text-slate-500">Suma nuevos POs a COMPRA CANAL sin borrar</div>
+                </div>
+              </button>
               <button type="button" class="dd-item" onclick="$('ddCompras').classList.add('hidden'); $('fBuyExtra').click()">
                 <i data-lucide="plus-circle" class="w-4 h-4 text-teal-700 shrink-0 mt-0.5"></i>
                 <div>
@@ -10009,6 +10116,7 @@ function vDrop() {
 
 /* ============ INICIALIZACIÓN ============ */
 $('fBuyInit').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadBuyInitial(f); };
+$('fBuyInitAppend').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadBuyInitialAppend(f); };
 $('fBuyExtra').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadBuyExtra(f); };
 $('fOcPrelim').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadOcPreliminar(f); };
 $('fOcFinal').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) loadOcFinalProducto(f); };
