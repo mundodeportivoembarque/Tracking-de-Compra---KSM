@@ -446,6 +446,7 @@ const S = {
     filesStatus: {}
   },
   f: { q: '', etapa: '', detalle: '', canal: '', canalFinal: '', embarque: '', quincena: '', precioCambio: '' },
+  dashF: { grupo: '', canal: '', canalMode: 'effective', etapa: '' },
   corp: { year: '', scope: 'season', expandedMonth: null },
   page: 1,
   size: 50
@@ -6640,22 +6641,145 @@ function kpi(l, v, sub, c, moneyVal) {
     ${moneyHtml}
   </div>`;
 }
+function getDashRowCanal(r, mode = 'effective') {
+  const cFin = String(r['Canal Final'] || '').trim().toUpperCase();
+  const cIni = String(r['Canal Inicial'] || resolverCanalInicial(r['Referencia compra'], S.brand) || '').trim().toUpperCase();
+  if (mode === 'initial') return cIni || 'SIN CANAL';
+  if (mode === 'final') return cFin || 'PENDIENTE';
+  return cFin || cIni || 'SIN CANAL';
+}
+
+function getDashSubStage(r) {
+  const k = st(r);
+  if (k === 'o') {
+    const det = String(r['Detalle compra'] || '').toUpperCase();
+    return det === 'COMPRA EXTRA' ? '10a_extra' : '10a_canal';
+  }
+  if (k === 'p') {
+    const emb = String(r['EMBARQUE'] || '').trim().toUpperCase();
+    return (!emb || emb === 'FORWARDER') ? 'p24_fw' : 'p24_emb';
+  }
+  if (k === 'dep') return 'depco';
+  return 'drop';
+}
+
+let lastDashExportPayload = null;
+
+function exportDashSummaryExcel() {
+  if (!lastDashExportPayload) return modal('Sin datos', 'No hay información en el resumen para exportar.');
+  const { brand, season, filtersLabel, stageRows, groupBreakdown, canalBreakdown } = lastDashExportPayload;
+  const wb = XLSX.utils.book_new();
+  const aoaStages = [
+    [`RESUMEN EJECUTIVO DE SALDOS · ${brand.toUpperCase()} ${season.toUpperCase()}`],
+    [`Filtros aplicados: ${filtersLabel}`],
+    [],
+    ['Etapa / Estado de Saldo', 'Detalle', 'Unidades', 'Dólares FOB ($)', '% Unidades', '% Dólares'],
+    ...stageRows.map(s => [
+      s.label, s.desc, s.units, Math.round(s.fob * 100) / 100, s.pctUnitsStr, s.pctFobStr
+    ])
+  ];
+  const aoaGroups = [
+    ['Grupo', 'Total Comprado (Unid.)', 'Total Comprado ($)', 'P24 Embarcado (Unid.)', 'P24 Embarcado ($)', 'Forwarder (Unid.)', 'Forwarder ($)', 'DEPCO (Unid.)', 'DEPCO ($)', 'Saldo 10A (Unid.)', 'Saldo 10A ($)', 'DROP (Unid.)', 'DROP ($)'],
+    ...groupBreakdown.map(g => [
+      g.name, g.totU, Math.round(g.totF * 100) / 100,
+      g.p24EmbU, Math.round(g.p24EmbF * 100) / 100,
+      g.p24FwU, Math.round(g.p24FwF * 100) / 100,
+      g.depU, Math.round(g.depF * 100) / 100,
+      g.s10U, Math.round(g.s10F * 100) / 100,
+      g.dropU, Math.round(g.dropF * 100) / 100
+    ])
+  ];
+  const aoaCanals = [
+    ['Canal', 'Total Comprado (Unid.)', 'Total Comprado ($)', 'P24 Embarcado (Unid.)', 'P24 Embarcado ($)', 'Forwarder (Unid.)', 'Forwarder ($)', 'DEPCO (Unid.)', 'DEPCO ($)', 'Saldo 10A (Unid.)', 'Saldo 10A ($)', 'DROP (Unid.)', 'DROP ($)'],
+    ...canalBreakdown.map(c => [
+      c.name, c.totU, Math.round(c.totF * 100) / 100,
+      c.p24EmbU, Math.round(c.p24EmbF * 100) / 100,
+      c.p24FwU, Math.round(c.p24FwF * 100) / 100,
+      c.depU, Math.round(c.depF * 100) / 100,
+      c.s10U, Math.round(c.s10F * 100) / 100,
+      c.dropU, Math.round(c.dropF * 100) / 100
+    ])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaStages), 'Saldos_Por_Etapa');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaGroups), 'Por_Grupo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaCanals), 'Por_Canal');
+  XLSX.writeFile(wb, `RESUMEN_SALDOS_${brand}_${season}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 function vDash() {
+  const df = S.dashF || (S.dashF = { grupo: '', canal: '', canalMode: 'effective', etapa: '' });
+
+  // Opciones únicas de Grupo y Canal presentes en la temporada
+  const gruposList = [...new Set(S.rows.map(r => String(r['Grupo'] || '').trim()).filter(Boolean))].sort();
+  const canalesList = [...new Set(S.rows.map(r => getDashRowCanal(r, df.canalMode)).filter(Boolean))].sort();
+
+  if (df.grupo && !gruposList.includes(df.grupo)) df.grupo = '';
+  if (df.canal && !canalesList.includes(df.canal)) df.canal = '';
+
+  // Filtrar registros según Grupo, Canal y Etapa seleccionados
+  const filteredRows = S.rows.filter(r => {
+    if (df.grupo) {
+      const g = String(r['Grupo'] || '').trim();
+      if (g !== df.grupo) return false;
+    }
+    if (df.canal) {
+      if (getDashRowCanal(r, df.canalMode) !== df.canal) return false;
+    }
+    if (df.etapa) {
+      const sub = getDashSubStage(r);
+      const mainK = st(r);
+      if (df.etapa === '10a_all' && mainK !== 'o') return false;
+      else if (df.etapa === 'p24_all' && mainK !== 'p') return false;
+      else if (!['10a_all', 'p24_all'].includes(df.etapa) && sub !== df.etapa) return false;
+    }
+    return true;
+  });
+
   let t = 0, p = 0, dep = 0, o = 0, d = 0;
   let fobT = 0, fobP = 0, fobDep = 0, fobO = 0, fobD = 0;
   let canalUnits = 0, extraUnits = 0, canalFob = 0, extraFob = 0;
   let priceAlerts = 0, priceAlertUnits = 0;
 
-  for (const r of S.rows) {
+  // Acumuladores por sub-etapa de saldos
+  const subStats = {
+    '10a_canal': { units: 0, fob: 0 },
+    '10a_extra': { units: 0, fob: 0 },
+    'p24_fw':    { units: 0, fob: 0 },
+    'p24_emb':   { units: 0, fob: 0 },
+    'depco':     { units: 0, fob: 0 },
+    'drop':      { units: 0, fob: 0 }
+  };
+
+  // Acumuladores cruzados por Grupo y por Canal
+  const grpMap = new Map();
+  const canMap = new Map();
+  const addCross = (map, key, sub, q, vn) => {
+    if (!map.has(key)) {
+      map.set(key, { name: key, totU: 0, totF: 0, p24EmbU: 0, p24EmbF: 0, p24FwU: 0, p24FwF: 0, depU: 0, depF: 0, s10U: 0, s10F: 0, dropU: 0, dropF: 0 });
+    }
+    const it = map.get(key);
+    it.totU += q; it.totF += vn;
+    if (sub === 'p24_emb') { it.p24EmbU += q; it.p24EmbF += vn; }
+    else if (sub === 'p24_fw') { it.p24FwU += q; it.p24FwF += vn; }
+    else if (sub === 'depco') { it.depU += q; it.depF += vn; }
+    else if (sub === '10a_canal' || sub === '10a_extra') { it.s10U += q; it.s10F += vn; }
+    else if (sub === 'drop') { it.dropU += q; it.dropF += vn; }
+  };
+
+  for (const r of filteredRows) {
     const q = Number(r['Cantidad'] || 0);
     const vn = Number(r['Valor Neto'] || calcValorNeto(r));
     const k = st(r);
+    const sub = getDashSubStage(r);
     t += q;
     fobT += vn;
     if (k === 'p') { p += q; fobP += vn; }
     else if (k === 'dep') { dep += q; fobDep += vn; }
     else if (k === 'd') { d += q; fobD += vn; }
     else { o += q; fobO += vn; }
+
+    subStats[sub].units += q;
+    subStats[sub].fob += vn;
 
     const det = String(r['Detalle compra'] || '').toUpperCase();
     if (det === 'COMPRA EXTRA') { extraUnits += q; extraFob += vn; }
@@ -6665,9 +6789,99 @@ function vDash() {
       priceAlerts++;
       priceAlertUnits += q;
     }
+
+    const grpName = String(r['Grupo'] || '').trim() || 'SIN GRUPO';
+    const canName = getDashRowCanal(r, df.canalMode);
+    addCross(grpMap, grpName, sub, q, vn);
+    addCross(canMap, canName, sub, q, vn);
   }
+
   const fr = t ? (p / t * 100).toFixed(1) : '0.0';
   const frMoney = fobT ? (fobP / fobT * 100).toFixed(1) : '0.0';
+  const hasActiveFilters = Boolean(df.grupo || df.canal || df.etapa);
+
+  const stageTableItems = [
+    {
+      key: 'p24_emb',
+      dot: 'bg-emerald-600',
+      badgeCls: 'bg-emerald-50 text-emerald-900 border-emerald-200',
+      label: 'P24 · Con Embarque / Nacionalizado',
+      desc: 'Mercadería embarcada o ingresada a CD / Tiendas',
+      units: subStats['p24_emb'].units,
+      fob: subStats['p24_emb'].fob
+    },
+    {
+      key: 'p24_fw',
+      dot: 'bg-orange-500',
+      badgeCls: 'bg-orange-50 text-orange-900 border-orange-200',
+      label: 'P24 · En Tránsito (FORWARDER)',
+      desc: 'Facturado por marca, pendiente de asignación de embarque',
+      units: subStats['p24_fw'].units,
+      fob: subStats['p24_fw'].fob
+    },
+    {
+      key: 'depco',
+      dot: 'bg-indigo-600',
+      badgeCls: 'bg-indigo-50 text-indigo-900 border-indigo-200',
+      label: 'DEPCO · Depósito Comercial',
+      desc: 'Saldo almacenado en aduana pendiente de nacionalizar',
+      units: subStats['depco'].units,
+      fob: subStats['depco'].fob
+    },
+    {
+      key: '10a_canal',
+      dot: 'bg-amber-500',
+      badgeCls: 'bg-amber-50 text-amber-900 border-amber-200',
+      label: '10A · Saldo Disponible (Compra Canal)',
+      desc: 'Presupuesto inicial pendiente por facturar',
+      units: subStats['10a_canal'].units,
+      fob: subStats['10a_canal'].fob
+    },
+    {
+      key: '10a_extra',
+      dot: 'bg-teal-600',
+      badgeCls: 'bg-teal-50 text-teal-900 border-teal-200',
+      label: '10A · Saldo Disponible (Compra Extra)',
+      desc: 'Pedidos extra anexados pendientes por facturar',
+      units: subStats['10a_extra'].units,
+      fob: subStats['10a_extra'].fob
+    },
+    {
+      key: 'drop',
+      dot: 'bg-rose-600',
+      badgeCls: 'bg-rose-50 text-rose-900 border-rose-200',
+      label: 'DROP · Cancelado por Marca',
+      desc: 'Unidades caídas / no despachadas',
+      units: subStats['drop'].units,
+      fob: subStats['drop'].fob
+    }
+  ].map(item => ({
+    ...item,
+    pctUnits: t > 0 ? (item.units / t) * 100 : 0,
+    pctFob: fobT > 0 ? (item.fob / fobT) * 100 : 0,
+    pctUnitsStr: t > 0 ? ((item.units / t) * 100).toFixed(1) + '%' : '0.0%',
+    pctFobStr: fobT > 0 ? ((item.fob / fobT) * 100).toFixed(1) + '%' : '0.0%'
+  }));
+
+  const saldoActivoUnits = subStats['10a_canal'].units + subStats['10a_extra'].units + subStats['p24_fw'].units + subStats['depco'].units;
+  const saldoActivoFob = subStats['10a_canal'].fob + subStats['10a_extra'].fob + subStats['p24_fw'].fob + subStats['depco'].fob;
+
+  const groupBreakdown = [...grpMap.values()].sort((a, b) => b.totU - a.totU);
+  const canalBreakdown = [...canMap.values()].sort((a, b) => b.totU - a.totU);
+  const filtersLabel = [
+    df.grupo ? `Grupo: ${df.grupo}` : 'Todos los grupos',
+    df.canal ? `Canal (${df.canalMode === 'initial' ? 'Inicial' : df.canalMode === 'final' ? 'Final' : 'Efectivo'}): ${df.canal}` : 'Todos los canales',
+    df.etapa ? `Etapa: ${df.etapa.toUpperCase()}` : 'Todas las etapas'
+  ].join(' · ');
+
+  lastDashExportPayload = {
+    brand: S.brand,
+    season: S.season,
+    filtersLabel,
+    stageRows: stageTableItems,
+    groupBreakdown,
+    canalBreakdown
+  };
 
   const alertBanner = priceAlerts > 0
     ? `<div class="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -6684,83 +6898,225 @@ function vDash() {
 
   $('view').innerHTML = `
     ${alertBanner}
+
+    <!-- Barra de Filtros del Resumen (Grupo, Canal y Etapa) -->
+    <div class="panel-card p-4 mb-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5 flex-1">
+          <div class="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider text-slate-500 mr-1">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-slate-700"></i>
+            <span>Filtros de Resumen:</span>
+          </div>
+
+          <select id="dashFilterGrupo" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white text-slate-800 font-semibold shadow-2xs focus:border-slate-900 focus:outline-none">
+            <option value="">Todos los Grupos (${gruposList.length})</option>
+            ${gruposList.map(g => `<option value="${esc(g)}" ${df.grupo === g ? 'selected' : ''}>Grupo: ${esc(g)}</option>`).join('')}
+          </select>
+
+          <div class="inline-flex items-center rounded-lg border border-slate-300 bg-white shadow-2xs overflow-hidden">
+            <select id="dashFilterCanalMode" class="bg-slate-50 border-r border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 focus:outline-none" title="Criterio de canal a evaluar">
+              <option value="effective" ${df.canalMode === 'effective' ? 'selected' : ''}>Canal Efectivo</option>
+              <option value="initial" ${df.canalMode === 'initial' ? 'selected' : ''}>Canal Inicial</option>
+              <option value="final" ${df.canalMode === 'final' ? 'selected' : ''}>Canal Final</option>
+            </select>
+            <select id="dashFilterCanal" class="px-3 py-1.5 text-sm bg-white text-slate-800 font-semibold focus:outline-none">
+              <option value="">Todos los Canales (${canalesList.length})</option>
+              ${canalesList.map(c => `<option value="${esc(c)}" ${df.canal === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+            </select>
+          </div>
+
+          <select id="dashFilterEtapa" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white text-slate-800 font-semibold shadow-2xs focus:border-slate-900 focus:outline-none">
+            <option value="">Todas las Etapas</option>
+            <option value="10a_all" ${df.etapa === '10a_all' ? 'selected' : ''}>10A · Todo el Saldo Pendiente</option>
+            <option value="10a_canal" ${df.etapa === '10a_canal' ? 'selected' : ''}>10A · Saldo Compra Canal</option>
+            <option value="10a_extra" ${df.etapa === '10a_extra' ? 'selected' : ''}>10A · Saldo Compra Extra</option>
+            <option value="p24_all" ${df.etapa === 'p24_all' ? 'selected' : ''}>P24 · Todo lo Facturado</option>
+            <option value="p24_emb" ${df.etapa === 'p24_emb' ? 'selected' : ''}>P24 · Con Embarque / Nacionalizado</option>
+            <option value="p24_fw" ${df.etapa === 'p24_fw' ? 'selected' : ''}>P24 · En Tránsito (FORWARDER)</option>
+            <option value="depco" ${df.etapa === 'depco' ? 'selected' : ''}>DEPCO · Depósito Comercial</option>
+            <option value="drop" ${df.etapa === 'drop' ? 'selected' : ''}>DROP · Cancelado por Marca</option>
+          </select>
+
+          ${hasActiveFilters ? `
+          <button type="button" id="btnResetDashFilters" class="btn !py-1.5 !px-3 !text-xs !bg-rose-50 !text-rose-700 !border-rose-200 hover:!bg-rose-100">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i> Limpiar filtros
+          </button>` : ''}
+        </div>
+
+        <button type="button" onclick="exportDashSummaryExcel()" class="btn !bg-emerald-700 !text-white !border-emerald-700 hover:!bg-emerald-800 !text-xs shrink-0">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Exportar Resumen
+        </button>
+      </div>
+      ${hasActiveFilters ? `
+      <div class="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span class="text-slate-600">Mostrando <b>${fn(filteredRows.length)} líneas</b> filtradas (${esc(filtersLabel)})</span>
+        <span class="font-mono font-bold text-slate-900">${fn(t)} unid. · ${fmoney(fobT)}</span>
+      </div>` : ''}
+    </div>
+
+    <!-- Tarjetas KPI Principales (Unidades y Dólares FOB) -->
     <div class="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      ${kpi('Unidades compradas', fn(t), 'Total temporada', '', fobT)}
-      ${kpi('Nacionalizado / P24', fn(p), 'Unidades en CD / Tiendas', 'border-l-4 border-l-green-600', fobP)}
+      ${kpi('Unidades compradas', fn(t), hasActiveFilters ? 'Total selección' : 'Total temporada', '', fobT)}
+      ${kpi('Nacionalizado / P24', fn(p), 'Facturado / CD / Tiendas', 'border-l-4 border-l-green-600', fobP)}
       ${kpi('Saldo en DEPCO', fn(dep), 'Depósito aduanero activo', 'border-l-4 border-l-indigo-600', fobDep)}
       ${kpi('Saldo pendiente (10A)', fn(o), 'Presupuesto por facturar', 'border-l-4 border-l-amber-500', fobO)}
       ${kpi('Unidades en DROP', fn(d), 'Cancelado por marca', 'border-l-4 border-l-red-600', fobD)}
       ${kpi('Fill Rate (Unid. / FOB)', fr + '%', 'FOB Ejecutado: ' + frMoney + '%')}
     </div>
 
+    <!-- Nueva Tarjeta Ejecutiva: Desglose de Cantidades y Dólares por Etapa y Saldos -->
+    <div class="panel-card p-5 mt-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <div class="text-sm font-bold text-slate-900">Desglose de Cantidades y Dólares por Etapa (Control de Saldos)</div>
+          <div class="text-xs text-slate-500 mt-0.5">Haz clic en cualquier etapa para filtrar el resumen directamente por ese estado</div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-950 font-semibold">
+            Saldo Activo Pendiente (10A + FW + DEPCO): <b>${fn(saldoActivoUnits)} u.</b> · <span class="font-mono">${fmoney(saldoActivoFob)}</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Barra Proporcional Multietapa -->
+      <div class="flex h-3.5 rounded-full overflow-hidden bg-slate-100 p-0.5 border border-slate-200/70 gap-0.5 mb-4">
+        <div class="rounded-l-full transition-all" style="width:${t ? subStats['p24_emb'].units / t * 100 : 0}%;background:#16a34a" title="P24 Embarcado: ${fn(subStats['p24_emb'].units)} u."></div>
+        <div class="transition-all" style="width:${t ? subStats['p24_fw'].units / t * 100 : 0}%;background:#f97316" title="P24 Forwarder: ${fn(subStats['p24_fw'].units)} u."></div>
+        <div class="transition-all" style="width:${t ? subStats['depco'].units / t * 100 : 0}%;background:#4f46e5" title="DEPCO: ${fn(subStats['depco'].units)} u."></div>
+        <div class="transition-all" style="width:${t ? subStats['10a_canal'].units / t * 100 : 0}%;background:#f59e0b" title="10A Compra Canal: ${fn(subStats['10a_canal'].units)} u."></div>
+        <div class="transition-all" style="width:${t ? subStats['10a_extra'].units / t * 100 : 0}%;background:#0d9488" title="10A Compra Extra: ${fn(subStats['10a_extra'].units)} u."></div>
+        <div class="rounded-r-full transition-all" style="width:${t ? subStats['drop'].units / t * 100 : 0}%;background:#dc2626" title="DROP: ${fn(subStats['drop'].units)} u."></div>
+      </div>
+
+      <div class="overflow-x-auto border rounded-lg">
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="text-left text-xs text-slate-600 bg-slate-50 border-b">
+              <th class="px-4 py-2.5 font-semibold">Etapa / Estado de Saldo</th>
+              <th class="px-4 py-2.5 font-semibold">Descripción Operativa</th>
+              <th class="px-4 py-2.5 font-semibold text-right">Unidades</th>
+              <th class="px-4 py-2.5 font-semibold text-right">% Unid.</th>
+              <th class="px-4 py-2.5 font-semibold text-right">Dólares (FOB Neto)</th>
+              <th class="px-4 py-2.5 font-semibold text-right">% Dólares</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${stageTableItems.map(item => {
+              const isSelected = df.etapa === item.key;
+              return `
+              <tr class="border-t cursor-pointer transition ${isSelected ? 'bg-indigo-50/80 font-semibold' : 'hover:bg-slate-50'}" onclick="S.dashF.etapa = (S.dashF.etapa === '${item.key}' ? '' : '${item.key}'); vDash();">
+                <td class="px-4 py-2.5 whitespace-nowrap">
+                  <span class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-md border text-xs font-bold ${item.badgeCls}">
+                    <span class="w-2 h-2 rounded-full ${item.dot}"></span>
+                    ${esc(item.label)}
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-xs text-slate-500">${esc(item.desc)}</td>
+                <td class="px-4 py-2.5 num font-extrabold text-slate-900">${fn(item.units)}</td>
+                <td class="px-4 py-2.5 num text-xs font-semibold text-slate-600">${item.pctUnitsStr}</td>
+                <td class="px-4 py-2.5 num font-mono font-bold text-slate-900">${fmoney(item.fob)}</td>
+                <td class="px-4 py-2.5 num text-xs font-semibold text-slate-600">${item.pctFobStr}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr class="font-bold text-slate-900 bg-slate-100 border-t-2 border-slate-300">
+              <td colspan="2" class="px-4 py-2.5 text-xs uppercase tracking-wider">TOTAL GENERAL ${hasActiveFilters ? '(FILTRADO)' : ''}</td>
+              <td class="px-4 py-2.5 num text-base font-extrabold">${fn(t)}</td>
+              <td class="px-4 py-2.5 num text-xs">100.0%</td>
+              <td class="px-4 py-2.5 num font-mono text-base font-extrabold text-indigo-950">${fmoney(fobT)}</td>
+              <td class="px-4 py-2.5 num text-xs">100.0%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tarjetas Inferiores: Desglose Rápido por Grupo y por Canal (Unidades y Dólares) -->
     <div class="grid gap-4 lg:grid-cols-2 mt-5">
       <div class="panel-card p-5">
         <div class="flex items-center justify-between mb-3">
           <div>
-            <div class="text-sm font-bold text-slate-900">Distribución de Inventario por Etapa y Régimen</div>
-            <div class="text-xs text-slate-500">Proporción sobre ${fn(t)} unidades compradas</div>
+            <div class="text-sm font-bold text-slate-900">Resumen por Grupo (Unidades y Dólares)</div>
+            <div class="text-xs text-slate-500">Clic en un grupo para filtrar todo el resumen</div>
           </div>
-          <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">${fmoney(fobT)}</span>
         </div>
-        <div class="flex h-3.5 rounded-full overflow-hidden bg-slate-100 p-0.5 border border-slate-200/70 gap-0.5">
-          <div class="rounded-l-full transition-all" style="width:${t ? p / t * 100 : 0}%;background:#16a34a" title="P24: ${fn(p)} unid."></div>
-          <div class="transition-all" style="width:${t ? dep / t * 100 : 0}%;background:#4f46e5" title="DEPCO: ${fn(dep)} unid."></div>
-          <div class="transition-all" style="width:${t ? o / t * 100 : 0}%;background:#f59e0b" title="10A: ${fn(o)} unid."></div>
-          <div class="rounded-r-full transition-all" style="width:${t ? d / t * 100 : 0}%;background:#dc2626" title="DROP: ${fn(d)} unid."></div>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4">
-          <div class="p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200/70">
-            <div class="text-[11px] font-bold text-emerald-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-600"></span>P24</div>
-            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(p)}</div>
-            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobP)}</div>
-          </div>
-          <div class="p-2.5 rounded-lg bg-indigo-50/60 border border-indigo-200/70">
-            <div class="text-[11px] font-bold text-indigo-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-indigo-600"></span>DEPCO</div>
-            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(dep)}</div>
-            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobDep)}</div>
-          </div>
-          <div class="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/70">
-            <div class="text-[11px] font-bold text-amber-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span>10A</div>
-            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(o)}</div>
-            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobO)}</div>
-          </div>
-          <div class="p-2.5 rounded-lg bg-rose-50/60 border border-rose-200/70">
-            <div class="text-[11px] font-bold text-rose-800 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-rose-600"></span>DROP</div>
-            <div class="text-sm font-extrabold text-slate-900 mt-0.5 num !text-left">${fn(d)}</div>
-            <div class="text-[11px] font-mono text-slate-500">${fmoney(fobD)}</div>
-          </div>
+        <div class="overflow-x-auto border rounded-lg">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-slate-50 text-slate-600 border-b">
+                <th class="px-3 py-2 text-left font-semibold">Grupo</th>
+                <th class="px-3 py-2 text-right font-semibold">Total Unid.</th>
+                <th class="px-3 py-2 text-right font-semibold">Total FOB ($)</th>
+                <th class="px-3 py-2 text-right font-semibold text-emerald-800">P24 (Unid. / $)</th>
+                <th class="px-3 py-2 text-right font-semibold text-amber-800">Saldo 10A (Unid. / $)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${groupBreakdown.map(g => `
+                <tr class="border-t cursor-pointer ${df.grupo === g.name ? 'bg-indigo-50 font-bold' : 'hover:bg-slate-50'}" onclick="S.dashF.grupo = (S.dashF.grupo === '${esc(g.name)}' ? '' : '${esc(g.name)}'); vDash();">
+                  <td class="px-3 py-2 font-bold text-slate-900">${esc(g.name)}</td>
+                  <td class="px-3 py-2 num font-bold">${fn(g.totU)}</td>
+                  <td class="px-3 py-2 num font-mono font-semibold text-slate-800">${fmoney(g.totF)}</td>
+                  <td class="px-3 py-2 num text-emerald-800">${fn(g.p24EmbU + g.p24FwU)} u. · <span class="font-mono">${fmoney(g.p24EmbF + g.p24FwF)}</span></td>
+                  <td class="px-3 py-2 num text-amber-800">${fn(g.s10U)} u. · <span class="font-mono">${fmoney(g.s10F)}</span></td>
+                </tr>
+              `).join('') || '<tr><td colspan="5" class="p-6 text-center text-slate-400">Sin datos.</td></tr>'}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div class="panel-card p-5 flex flex-col justify-between">
-        <div>
-          <div class="text-sm font-bold text-slate-900">Composición del Presupuesto de Compra</div>
-          <div class="text-xs text-slate-500 mt-0.5">Separación entre asignación inicial de canal y reposiciones extra</div>
+      <div class="panel-card p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="text-sm font-bold text-slate-900">Resumen por Canal (Unidades y Dólares)</div>
+            <div class="text-xs text-slate-500">Clic en un canal para filtrar todo el resumen</div>
+          </div>
+          <div class="text-xs text-slate-500">
+            Canal: <b>${fn(canalUnits)} u.</b> · Extra: <b>${fn(extraUnits)} u.</b>
+          </div>
         </div>
-        <div class="grid grid-cols-2 gap-3.5 mt-4">
-          <div class="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80">
-            <div class="flex items-center justify-between">
-              <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">Compra Canal</span>
-              <span class="text-[11px] font-mono font-bold text-slate-500">${t ? (canalUnits / t * 100).toFixed(1) : '0.0'}%</span>
-            </div>
-            <div class="text-2xl font-extrabold text-slate-900 mt-1.5 num !text-left">${fn(canalUnits)} <span class="text-xs font-medium text-slate-400">unid.</span></div>
-            <div class="text-xs font-mono font-semibold text-slate-600 mt-1.5">${fmoney(canalFob)}</div>
-          </div>
-          <div class="p-4 rounded-xl bg-teal-50/50 border border-teal-200/70">
-            <div class="flex items-center justify-between">
-              <span class="text-[11px] font-extrabold uppercase tracking-wider text-teal-900">Compra Extra</span>
-              <span class="text-[11px] font-mono font-bold text-teal-700">${t ? (extraUnits / t * 100).toFixed(1) : '0.0'}%</span>
-            </div>
-            <div class="text-2xl font-extrabold text-slate-900 mt-1.5 num !text-left">${fn(extraUnits)} <span class="text-xs font-medium text-slate-400">unid.</span></div>
-            <div class="text-xs font-mono font-semibold text-teal-800 mt-1.5">${fmoney(extraFob)}</div>
-          </div>
+        <div class="overflow-x-auto border rounded-lg max-h-72">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-slate-50 text-slate-600 border-b">
+                <th class="px-3 py-2 text-left font-semibold">Canal</th>
+                <th class="px-3 py-2 text-right font-semibold">Total Unid.</th>
+                <th class="px-3 py-2 text-right font-semibold">Total FOB ($)</th>
+                <th class="px-3 py-2 text-right font-semibold text-emerald-800">P24 (Unid. / $)</th>
+                <th class="px-3 py-2 text-right font-semibold text-amber-800">Saldo 10A (Unid. / $)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${canalBreakdown.map(c => `
+                <tr class="border-t cursor-pointer ${df.canal === c.name ? 'bg-indigo-50 font-bold' : 'hover:bg-slate-50'}" onclick="S.dashF.canal = (S.dashF.canal === '${esc(c.name)}' ? '' : '${esc(c.name)}'); vDash();">
+                  <td class="px-3 py-2 font-bold text-slate-900">${esc(c.name)}</td>
+                  <td class="px-3 py-2 num font-bold">${fn(c.totU)}</td>
+                  <td class="px-3 py-2 num font-mono font-semibold text-slate-800">${fmoney(c.totF)}</td>
+                  <td class="px-3 py-2 num text-emerald-800">${fn(c.p24EmbU + c.p24FwU)} u. · <span class="font-mono">${fmoney(c.p24EmbF + c.p24FwF)}</span></td>
+                  <td class="px-3 py-2 num text-amber-800">${fn(c.s10U)} u. · <span class="font-mono">${fmoney(c.s10F)}</span></td>
+                </tr>
+              `).join('') || '<tr><td colspan="5" class="p-6 text-center text-slate-400">Sin datos.</td></tr>'}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   `;
-  icons();
-}
 
+  icons();
+  $('dashFilterGrupo').onchange = e => { S.dashF.grupo = e.target.value; vDash(); };
+  $('dashFilterCanalMode').onchange = e => { S.dashF.canalMode = e.target.value; S.dashF.canal = ''; vDash(); };
+  $('dashFilterCanal').onchange = e => { S.dashF.canal = e.target.value; vDash(); };
+  $('dashFilterEtapa').onchange = e => { S.dashF.etapa = e.target.value; vDash(); };
+  if ($('btnResetDashFilters')) {
+    $('btnResetDashFilters').onclick = () => {
+      S.dashF = { grupo: '', canal: '', canalMode: S.dashF.canalMode || 'effective', etapa: '' };
+      vDash();
+    };
+  }
+}
 
 /* ============ VISTA DEDICADA: TRAZABILIDAD COMPLETA / CICLO DE VIDA POR SKU ============ */
 function openSkuTrace(codStr) {
