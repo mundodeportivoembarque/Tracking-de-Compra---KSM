@@ -386,6 +386,14 @@ function resolverCanalInicial(refCompra, marca) {
   if (pool.has(ref)) return 'TIENDAS';
   return normalizarCanal(ref);
 }
+function normalizarGrupo(g) {
+  const s = String(g || '').trim().toUpperCase();
+  if (!s) return '';
+  if (s === 'C' || s === 'CALZADO' || s === 'FOOTWEAR' || s.startsWith('CALZ')) return 'CALZADO';
+  if (s === 'R' || s === 'ROPA' || s === 'TEXTIL' || s === 'APPAREL' || s.startsWith('ROP')) return 'ROPA';
+  if (s === 'A' || s === 'ACCESORIO' || s === 'ACCESORIOS' || s === 'HARDWARE' || s === 'ACCESSORIES' || s.startsWith('ACC')) return 'ACCESORIOS';
+  return s;
+}
 function normalizarCanal(c) {
   let s = String(c || '').trim().toUpperCase();
   if (s === 'EXCLUSIVO WEB' || s === 'WEB REEBOK MEDEPORT') return 'WEB';
@@ -662,6 +670,13 @@ async function reload() {
     if (!r['Régimen'] || !String(r['Régimen']).trim()) {
       r['Régimen'] = 'CONSUMO';
       dirty = true;
+    }
+    if (r['Grupo']) {
+      const gNorm = normalizarGrupo(r['Grupo']);
+      if (gNorm && r['Grupo'] !== gNorm) {
+        r['Grupo'] = gNorm;
+        dirty = true;
+      }
     }
     const rRefUp = String(r['Referencia compra'] || '').trim().toUpperCase();
     const rCiUp = String(r['Canal Inicial'] || '').trim().toUpperCase();
@@ -1435,7 +1450,8 @@ function applyTemplateToRow(r, tplCatalog) {
 
   let changed = false;
   if (item.descripcion && r['Descripción'] !== item.descripcion) { r['Descripción'] = item.descripcion; changed = true; }
-  if (item.grupo && r['Grupo'] !== item.grupo) { r['Grupo'] = item.grupo; changed = true; }
+  const normItGrp = normalizarGrupo(item.grupo);
+  if (normItGrp && r['Grupo'] !== normItGrp) { r['Grupo'] = normItGrp; changed = true; }
   if (item.categoria && r['Categoría'] !== item.categoria) { r['Categoría'] = item.categoria; changed = true; }
   if (item.actividad && r['Actividad'] !== item.actividad) { r['Actividad'] = item.actividad; changed = true; }
   if (item.linea && r['Línea'] !== item.linea) { r['Línea'] = item.linea; changed = true; }
@@ -1724,7 +1740,7 @@ async function loadPresentationTemplate(file) {
       existingCatalog[cod] = {
         codigo: codRaw,
         descripcion: String(getCell(rowArr, ['DETALLE', 'Descripción', 'DESCRIPCION'])).trim(),
-        grupo: String(getCell(rowArr, ['GRUPO', 'Grupo'])).trim(),
+        grupo: normalizarGrupo(getCell(rowArr, ['GRUPO', 'Grupo'])),
         categoria: String(getCell(rowArr, ['TIPO_VENTA', 'TIPO VENTA', 'Tipo Venta', 'CATEGORIA', 'Categoría', 'PRODUCT DIVISION', 'DIVISION'])).trim(),
         actividad: String(getCell(rowArr, ['ACTIVIDAD', 'Actividad'])).trim(),
         linea: String(getCell(rowArr, ['LINEA', 'Línea', 'PRODUCT LINE', 'SUBCATEGORIA'])).trim(),
@@ -1870,6 +1886,7 @@ async function parseExcelFile(file, tipoCompra) {
     if (tplCatalog) {
       applyTemplateToRow(r, tplCatalog);
     }
+    if (r['Grupo']) r['Grupo'] = normalizarGrupo(r['Grupo']);
     r['Valor Neto'] = calcValorNeto(r);
     r.sb = sbKey();
     r.brand = S.brand;
@@ -4061,7 +4078,7 @@ async function buildDepcoLpnOrder(billFile, ptsFile = null, embOverride = '') {
       const tplItem = seasonTpl ? seasonTpl[codNorm] : null;
 
       const linea = (tplItem && tplItem.linea) ? tplItem.linea : String(getRowVal(o, ['LINEA', 'Línea', 'Product line']) ?? '').trim();
-      const grupo = (tplItem && tplItem.grupo) ? tplItem.grupo : String(getRowVal(o, ['GRUPO', 'Product Type Description']) ?? '').trim();
+      const grupo = normalizarGrupo((tplItem && tplItem.grupo) ? tplItem.grupo : String(getRowVal(o, ['GRUPO', 'Product Type Description']) ?? '').trim());
       const categoria = getTplFieldFromEntry(tplItem, 'categoria', ['tipoventa', 'categoria']) || String(getRowVal(o, ['CATEGORIA', 'TIPO_VENTA', 'Division']) ?? '').trim();
       const actividad = (tplItem && tplItem.actividad) ? tplItem.actividad : String(getRowVal(o, ['ACTIVIDAD', 'Sport Description']) ?? '').trim();
       const descripcion = (tplItem && tplItem.descripcion) ? tplItem.descripcion : String(getRowVal(o, ['Material Description', 'DESCRIPCION', 'Name']) ?? '').trim();
@@ -5408,7 +5425,7 @@ async function processBrandBilling(file, ptsFile = null) {
       const tplItem = seasonTpl ? seasonTpl[codNorm] : null;
 
       const actividad = (tplItem && tplItem.actividad) ? tplItem.actividad : String(getRowVal(o, ['ACTIVIDAD', 'Sport Description']) ?? '').trim();
-      const grupo = (tplItem && tplItem.grupo) ? tplItem.grupo : String(getRowVal(o, ['GRUPO', 'Product Type Description']) ?? '').trim();
+      const grupo = normalizarGrupo((tplItem && tplItem.grupo) ? tplItem.grupo : String(getRowVal(o, ['GRUPO', 'Product Type Description']) ?? '').trim());
       const categoria = getTplFieldFromEntry(tplItem, 'categoria', ['tipoventa', 'categoria']) || String(getRowVal(o, ['TIPO_VENTA', 'TIPO VENTA', 'CATEGORÍA', 'CATEGORIA', 'Division']) ?? '').trim();
       const genero = (tplItem && tplItem.genero) ? tplItem.genero : String(getRowVal(o, ['GÉNERO', 'GENERO', 'Gender']) ?? '').trim();
       const linea = (tplItem && tplItem.linea) ? tplItem.linea : String(getRowVal(o, ['LINEA', 'Línea', 'Product line']) ?? '').trim();
@@ -6710,7 +6727,7 @@ function vDash() {
   const df = S.dashF || (S.dashF = { grupo: '', canal: '', canalMode: 'effective', etapa: '' });
 
   // Opciones únicas de Grupo y Canal presentes en la temporada
-  const gruposList = [...new Set(S.rows.map(r => String(r['Grupo'] || '').trim()).filter(Boolean))].sort();
+  const gruposList = [...new Set(S.rows.map(r => normalizarGrupo(r['Grupo'])).filter(Boolean))].sort();
   const canalesList = [...new Set(S.rows.map(r => getDashRowCanal(r, df.canalMode)).filter(Boolean))].sort();
 
   if (df.grupo && !gruposList.includes(df.grupo)) df.grupo = '';
@@ -6719,7 +6736,7 @@ function vDash() {
   // Filtrar registros según Grupo, Canal y Etapa seleccionados
   const filteredRows = S.rows.filter(r => {
     if (df.grupo) {
-      const g = String(r['Grupo'] || '').trim();
+      const g = normalizarGrupo(r['Grupo']);
       if (g !== df.grupo) return false;
     }
     if (df.canal) {
@@ -6790,7 +6807,7 @@ function vDash() {
       priceAlertUnits += q;
     }
 
-    const grpName = String(r['Grupo'] || '').trim() || 'SIN GRUPO';
+    const grpName = normalizarGrupo(r['Grupo']) || 'SIN GRUPO';
     const canName = getDashRowCanal(r, df.canalMode);
     addCross(grpMap, grpName, sub, q, vn);
     addCross(canMap, canName, sub, q, vn);
