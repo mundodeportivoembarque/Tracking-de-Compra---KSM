@@ -441,7 +441,7 @@ const S = {
   depcoLpnHistory: [],
   tiendasConsolHistory: [],
   lastBillingPreview: null,
-  billTab: { q: '', codigo: '', embarque: '', factura: '', temporada: '', canal: '', forwarderOnly: false, page: 1, size: 50 },
+  billTab: { q: '', codigo: '', embarque: '', factura: '', temporada: '', canal: '', seasonScope: 'active', forwarderOnly: false, page: 1, size: 50 },
   depcoTab: { q: '', embarque: '', factura: '', canalFact: '', lpn: '', page: 1, size: 50 },
   skuTrace: { selectedSku: '', q: '', scope: 'season' },
   dropTab: { viewMode: 'pivot', q: '', canal: '', factura: '', expandedSku: null },
@@ -2107,6 +2107,44 @@ async function clearSeasonData() {
       pushCloudBuySeason(S.brand, S.season, true);
     }
     modal('Temporada vaciada', `Se han eliminado todos los registros de <b>${S.brand} ${S.season}</b>.`);
+}
+/* ============ 3A. BORRAR SOLO COMPRAS EXTRA DE LA TEMPORADA ============ */
+async function clearCompraExtraData() {
+  const extraRows = S.rows.filter(r => String(r['Detalle compra'] || '').trim().toUpperCase() === 'COMPRA EXTRA');
+  if (!extraRows.length) {
+    return modal('Sin compras extra', `No existen registros de <b>COMPRA EXTRA</b> cargados en <b>${S.brand} ${esc(S.season)}</b>.`);
+  }
+  const extraUnits = extraRows.reduce((a, r) => a + (Number(r['Cantidad']) || 0), 0);
+  const extraFob = extraRows.reduce((a, r) => a + (Number(r['Valor Neto']) || calcValorNeto(r)), 0);
+  const p24ExtraCount = extraRows.filter(r => st(r) === 'p').length;
+
+  const c1 = await modal(
+    '¿Borrar todas las Compras Extra de la temporada?',
+    `<div class="space-y-2.5 text-slate-700">
+       <p>Se eliminarán únicamente los <b>${fn(extraRows.length)} registros</b> (<b>${fn(extraUnits)} unidades</b> · Valor Neto: <b>${fmoney(extraFob)}</b>) etiquetados como <b>COMPRA EXTRA</b> en <b>${S.brand} ${esc(S.season)}</b>.</p>
+       <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs">
+         ✓ Tu <b>Compra Inicial (COMPRA CANAL)</b> y todos sus avances permanecerán completamente intactos.
+       </div>
+       ${p24ExtraCount > 0 ? `<div class="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs">
+         ⚠️ Nota: ${fn(p24ExtraCount)} línea(s) de estas compras extra ya figuraban facturadas (P24) y también serán eliminadas.
+       </div>` : ''}
+     </div>`,
+    [['Cancelar', 'c'], ['Sí, borrar Compras Extra', 'yes', 'danger']]
+  );
+  if (c1 !== 'yes') return;
+
+  busy('Eliminando Compras Extra…');
+  await tick();
+  const idsToDelete = extraRows.map(r => r.id).filter(id => id != null);
+  if (idsToDelete.length) {
+    await dbDeleteIds(idsToDelete);
+  }
+  await reload();
+  busy();
+  if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+    pushCloudBuySeason(S.brand, S.season, true);
+  }
+  modal('Compras Extra Eliminadas', `Se eliminaron <b>${fn(extraRows.length)} registros</b> (<b>${fn(extraUnits)} unidades</b>) de <b>COMPRA EXTRA</b> en <b>${S.brand} ${esc(S.season)}</b>.`);
 }
 /* ============ 3B. BORRAR / REVERTIR OCs ESPECÍFICAS CON FILTRO POR EMBARQUE ============ */
 async function promptDeleteOcs() {
@@ -6807,6 +6845,13 @@ function renderMain() {
                 </div>
               </button>
               <div class="dd-sep"></div>
+              <button type="button" class="dd-item warn" onclick="$('ddAdmin').classList.add('hidden'); clearCompraExtraData()">
+                <svg class="w-4 h-4 text-orange-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                <div>
+                  <div class="font-semibold">Borrar compras extra</div>
+                  <div class="text-[11px] text-slate-500">Elimina solo COMPRA EXTRA de ${esc(S.season)}</div>
+                </div>
+              </button>
               <button type="button" class="dd-item danger" onclick="$('ddAdmin').classList.add('hidden'); clearSeasonData()">
                 <svg class="w-4 h-4 text-red-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                 <div>
@@ -8902,21 +8947,51 @@ function vBilling() {
     });
   }
 
-  const totalUnits = unifiedRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
-  const totalFob = unifiedRows.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
-  const fwRows = unifiedRows.filter(r => r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER');
+  const bt = S.billTab;
+  if (!bt.seasonScope) bt.seasonScope = 'active';
+  const activeSeasonNorm = norm(S.season);
+
+  // Detectar qué embarques tienen al menos 1 registro perteneciente a la temporada activa (ej. embarques mezclados FW26/FW27 + SS27)
+  const shipmentsTouchingActiveSeason = new Set();
+  unifiedRows.forEach(r => {
+    const rTemp = norm(r.cells[tempIdx]);
+    const rEmb = String(r.embarque || '').trim();
+    if (rTemp === activeSeasonNorm && rEmb && rEmb.toUpperCase() !== 'FORWARDER') {
+      shipmentsTouchingActiveSeason.add(rEmb);
+    }
+  });
+
+  // Filtrar base visible según el alcance de temporada:
+  // - 'active': Solo líneas cuya temporada sea la temporada activa (ej. SS27). Los embarques exclusivos de FW27 NO aparecen, y los mezclados muestran su parte de SS27.
+  // - 'mixed_shipments': Muestra las líneas de SS27 + las líneas hermanas de los embarques mezclados con SS27 (excluyendo embarques 100% de otras temporadas).
+  // - 'all_brand': Todas las temporadas de la marca.
+  const scopedRows = unifiedRows.filter(r => {
+    const rTemp = norm(r.cells[tempIdx]);
+    if (bt.seasonScope === 'all_brand') return true;
+    if (bt.seasonScope === 'mixed_shipments') {
+      const rEmb = String(r.embarque || '').trim();
+      return rTemp === activeSeasonNorm || (rEmb && shipmentsTouchingActiveSeason.has(rEmb));
+    }
+    return rTemp === activeSeasonNorm;
+  });
+
+  const totalUnits = scopedRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
+  const totalFob = scopedRows.reduce((a, r) => a + (Number(r.cells[netValIdx]) || 0), 0);
+  const fwRows = scopedRows.filter(r => r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER');
   const fwUnits = fwRows.reduce((a, r) => a + (Number(r.cells[qtyIdx]) || 0), 0);
   const embUnits = totalUnits - fwUnits;
-  const uniqueInvoices = new Set(unifiedRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean)).size;
-  const missingSapLines = unifiedRows.filter(r => !String(r.cells[marSapIdx] || '').trim()).length;
+  const uniqueInvoices = new Set(scopedRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean)).size;
+  const missingSapLines = scopedRows.filter(r => !String(r.cells[marSapIdx] || '').trim()).length;
 
-  const embarquesList = [...new Set(unifiedRows.map(r => String(r.embarque || '').trim()).filter(Boolean))].sort();
-  const codigosList = [...new Set(unifiedRows.map(r => String(r.cells[codIdx] || '').trim()).filter(Boolean))].sort();
-  const facturasList = [...new Set(unifiedRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean))].sort();
-  const tempsList = [...new Set(unifiedRows.map(r => String(r.cells[tempIdx] || '').trim()).filter(Boolean))].sort();
-  const canalesList = [...new Set(unifiedRows.map(r => String(r.cells[canalIdx] || '').trim()).filter(Boolean))].sort();
+  const embarquesList = [...new Set(scopedRows.map(r => String(r.embarque || '').trim()).filter(Boolean))].sort();
+  const codigosList = [...new Set(scopedRows.map(r => String(r.cells[codIdx] || '').trim()).filter(Boolean))].sort();
+  const facturasList = [...new Set(scopedRows.map(r => String(r.cells[factIdx] || '').trim()).filter(Boolean))].sort();
+  const tempsList = [...new Set(scopedRows.map(r => String(r.cells[tempIdx] || '').trim()).filter(Boolean))].sort();
+  const canalesList = [...new Set(scopedRows.map(r => String(r.cells[canalIdx] || '').trim()).filter(Boolean))].sort();
 
-  const bt = S.billTab;
+  if (bt.embarque && !bt.embarque.startsWith('__') && !embarquesList.includes(bt.embarque)) bt.embarque = '';
+  if (bt.factura && !facturasList.includes(bt.factura)) bt.factura = '';
+  if (bt.temporada && !tempsList.includes(bt.temporada)) bt.temporada = '';
   view.innerHTML = `
     ${isFallbackMode ? `
     <div class="p-3 rounded-lg bg-sky-50 border border-sky-200 text-sky-950 text-xs mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -8971,8 +9046,13 @@ function vBilling() {
         <option value="">Todas las facturas (${facturasList.length})</option>
         ${facturasList.map(f => `<option value="${esc(f)}" ${bt.factura === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
       </select>
-      <select id="btTemp" class="border rounded px-2.5 py-1.5 text-sm bg-white">
-        <option value="">Todas las temporadas</option>
+      <select id="btScope" class="border border-sky-300 rounded px-2.5 py-1.5 text-sm bg-sky-50/70 text-sky-950 font-semibold" title="Controla qué temporadas se muestran en esta pestaña">
+        <option value="active" ${bt.seasonScope === 'active' ? 'selected' : ''}>Solo temporada ${esc(S.season)}</option>
+        <option value="mixed_shipments" ${bt.seasonScope === 'mixed_shipments' ? 'selected' : ''}>Embarques con ${esc(S.season)} (incl. mezclados)</option>
+        <option value="all_brand" ${bt.seasonScope === 'all_brand' ? 'selected' : ''}>Todas las temporadas (${esc(S.brand)})</option>
+      </select>
+      <select id="btTemp" class="border rounded px-2.5 py-1.5 text-sm bg-white ${bt.seasonScope === 'active' ? 'hidden' : ''}">
+        <option value="">Filtrar temporada...</option>
         ${tempsList.map(t => `<option value="${esc(t)}" ${bt.temporada === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
       </select>
       <select id="btCanal" class="border rounded px-2.5 py-1.5 text-sm bg-white">
@@ -8996,8 +9076,8 @@ function vBilling() {
   $('btCod').value = bt.codigo;
 
   // Pre-indexar texto de búsqueda por fila para filtrado instantáneo (<5ms)
-  for (let i = 0; i < unifiedRows.length; i++) {
-    const uRow = unifiedRows[i];
+  for (let i = 0; i < scopedRows.length; i++) {
+    const uRow = scopedRows[i];
     if (!uRow._qStr) {
       uRow._qStr = (uRow.cells.join(' ') + ' ' + String(uRow.embarque || '')).toLowerCase();
     }
@@ -9007,7 +9087,7 @@ function vBilling() {
   const drawBillingTable = () => {
     const q = bt.q.trim().toLowerCase();
     const codFilter = bt.codigo.trim().toUpperCase();
-    currentFiltered = unifiedRows.filter(r => {
+    currentFiltered = scopedRows.filter(r => {
       const isFw = r.isForwarder || String(r.embarque || '').toUpperCase() === 'FORWARDER';
       if (bt.embarque === '__FORWARDER__' && !isFw) return false;
       if (bt.embarque === '__ASSIGNED__' && isFw) return false;
@@ -9108,6 +9188,12 @@ function vBilling() {
     timer = setTimeout(drawBillingTable, 150);
   };
 
+  $('btScope').onchange = e => {
+    bt.seasonScope = e.target.value;
+    bt.temporada = '';
+    bt.page = 1;
+    vBilling();
+  };
   ['btSearch', 'btEmb', 'btCod', 'btFact', 'btTemp', 'btCanal'].forEach(id => {
     $(id).oninput = () => {
       if ($('btCodClear')) $('btCodClear').classList.toggle('hidden', !$('btCod').value.trim());
