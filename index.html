@@ -166,8 +166,8 @@ function resolveCanalInicialWithMeta(poStr) {
     return { canal: 'TIENDAS', confident: true, reason: 'Regla -EC EC- → TIENDAS' };
   }
 
-  if (cleaned.includes('ECOM MD') || cleaned.includes('WEB ADIDAS TIENDAS')) {
-    return { canal: 'WEB ADIDAS TIENDAS', confident: true, reason: 'Regla ECOM MD' };
+  if (cleaned.includes('ECOM') || cleaned.includes('WEB ADIDAS')) {
+    return { canal: 'TIENDAS', confident: true, reason: 'Regla ECOM / WEB ADIDAS → TIENDAS' };
   }
 
   if (/PROV[\s._-]*TAF/.test(cleaned)) return { canal: 'PROVEEDOR TAF', confident: true, reason: 'Regla PROV TAF' };
@@ -5166,10 +5166,10 @@ async function promptReviewPOChannelsModal(poSummaryList, filterMode = 'uncertai
       </table>
     </div>
 
-    <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none bg-slate-50 p-2.5 rounded-lg border">
-      <input type="checkbox" id="chkRememberPoCanals" class="w-4 h-4 accent-indigo-700" checked>
-      <span><b>Recordar estas asignaciones</b> automáticamente para futuras cargas de facturación</span>
-    </label>
+    <div class="p-2.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-center gap-2">
+      <i data-lucide="shield-check" class="w-4 h-4 text-emerald-700 shrink-0"></i>
+      <span>Los canales que asignes aquí se <b>guardan automáticamente</b> para este PO y no volverán a preguntarse en futuras cargas.</span>
+    </div>
 
     <div class="flex justify-end gap-2 mt-4 pt-3 border-t">
       <button type="button" id="btnCancelPoReview" class="btn">Cancelar</button>
@@ -5179,7 +5179,20 @@ async function promptReviewPOChannelsModal(poSummaryList, filterMode = 'uncertai
   m.classList.remove('hidden');
   icons();
 
+  if (!S.poCanalOverrides) S.poCanalOverrides = {};
   const editedDraft = new Map();
+
+  const persistPoOverride = async (poKey, chosenCanal) => {
+    if (!poKey || !chosenCanal) return;
+    editedDraft.set(poKey, chosenCanal);
+    S.poCanalOverrides[poKey] = chosenCanal;
+    try {
+      await saveMeta();
+      if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
+        pushCloudConfig().catch(() => {});
+      }
+    } catch (e) {}
+  };
 
   const renderRows = () => {
     const listToShow = activeFilter === 'uncertain'
@@ -5204,10 +5217,10 @@ async function promptReviewPOChannelsModal(poSummaryList, filterMode = 'uncertai
 
     $('poReviewTbody').innerHTML = listToShow.map(p => {
       const poKey = p.po.toUpperCase();
-      // Si el PO tiene saldo insuficiente y 10A muestra claramente qué canal tiene esas unidades, sugerirlo por defecto
+      const savedCanal = S.poCanalOverrides[poKey];
       const defaultCanal = editedDraft.has(poKey)
         ? editedDraft.get(poKey)
-        : ((p.hasUnmatched && p.suggestedFrom10A) ? p.suggestedFrom10A : (p.canal || p.suggestedFrom10A || 'TIENDAS'));
+        : (savedCanal || ((p.hasUnmatched && p.suggestedFrom10A) ? p.suggestedFrom10A : (p.canal || p.suggestedFrom10A || 'TIENDAS')));
       const opts = [...new Set([...ADIDAS_CANALES_OPCIONES, defaultCanal, ...(p.availCanalsList || [])])];
       const rowCls = p.hasUnmatched ? 'border-t bg-amber-50/50 hover:bg-amber-100/50' : 'border-t hover:bg-slate-50';
       return `
@@ -5216,6 +5229,7 @@ async function promptReviewPOChannelsModal(poSummaryList, filterMode = 'uncertai
           <div class="flex items-center gap-1.5">
             <span>${esc(p.po)}</span>
             ${p.hasUnmatched ? `<span class="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 font-sans text-[10px] font-bold">Sin saldo (${fn(p.unmatchedUnits)}u)</span>` : ''}
+            ${savedCanal ? `<span class="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-900 font-sans text-[10px] font-bold">Guardado</span>` : ''}
           </div>
           <div class="text-[10px] font-sans font-normal text-slate-500 mt-0.5">${esc(p.reason)} · Ej: ${esc(p.sampleSkus.join(', '))}</div>
         </td>
@@ -5237,8 +5251,8 @@ async function promptReviewPOChannelsModal(poSummaryList, filterMode = 'uncertai
     }).join('') || `<tr><td colspan="4" class="p-6 text-center text-slate-400">No hay Purchase Orders en esta vista.</td></tr>`;
 
     m.querySelectorAll('.po-canal-sel').forEach(sel => {
-      sel.onchange = () => {
-        editedDraft.set(sel.dataset.po, sel.value);
+      sel.onchange = async () => {
+        await persistPoOverride(sel.dataset.po, sel.value);
       };
     });
   };
@@ -5258,22 +5272,17 @@ async function promptReviewPOChannelsModal(poSummaryList, filterMode = 'uncertai
       resolve(false);
     };
     $('btnConfirmPoReview').onclick = async () => {
-      const remember = $('chkRememberPoCanals') ? $('chkRememberPoCanals').checked : true;
       const sessionOverrides = {};
-      // Incluir todos los cambios visibles + cualquier cambio guardado en editedDraft
       m.querySelectorAll('.po-canal-sel').forEach(sel => {
         editedDraft.set(sel.dataset.po, sel.value);
       });
       for (const [poKey, chosen] of editedDraft.entries()) {
         if (poKey && chosen) {
           sessionOverrides[poKey] = chosen;
-          if (remember) {
-            if (!S.poCanalOverrides) S.poCanalOverrides = {};
-            S.poCanalOverrides[poKey] = chosen;
-          }
+          S.poCanalOverrides[poKey] = chosen;
         }
       }
-      if (remember && Object.keys(sessionOverrides).length) {
+      if (Object.keys(sessionOverrides).length) {
         await saveMeta();
         if (S.cloud.dirHandle && S.cloud.autoSync && S.cloud.connected) {
           pushCloudConfig().catch(() => {});
