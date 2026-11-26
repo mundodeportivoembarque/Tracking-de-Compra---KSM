@@ -6468,7 +6468,7 @@ async function promptExcelExport() {
   icons();
 }
 
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const bFull = e.target.closest('#btnExpFull');
   const b10A = e.target.closest('#btnExp10A');
   if (bFull) {
