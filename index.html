@@ -1833,7 +1833,11 @@ async function parseExcelFile(file, tipoCompra) {
       const mapped = getTallaSapCandidates(r['Talla marca'], '', tmLookup);
       if (mapped.length) r['Talla'] = mapped[0];
     }
-    if (!r['Etapa']) r['Etapa'] = E10;
+    if (!r['Etapa']) {
+      const hasEmb = Boolean(String(r['EMBARQUE'] || '').trim());
+      const cfIni = String(r['Canal Final'] || '').trim().toUpperCase();
+      r['Etapa'] = (tipoCompra === 'COMPRA CANAL' && (hasEmb || cfIni)) ? EP : E10;
+    }
     if (!r['Temporada']) r['Temporada'] = S.season;
     const tplCatalog = S.templates[sbKey()];
     if (tplCatalog) {
